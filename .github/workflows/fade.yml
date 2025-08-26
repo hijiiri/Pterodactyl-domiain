@@ -23,18 +23,22 @@ jobs:
       - name: Configure VNC xstartup
         run: |
           sudo -u fade mkdir -p /home/fade/.vnc
-          cat <<EOF | sudo tee /home/fade/.vnc/xstartup
-#!/bin/bash
-unset SESSION_MANAGER
-unset DBUS_SESSION_BUS_ADDRESS
-exec startxfce4 &
-EOF
+          cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
+          #!/bin/bash
+          unset SESSION_MANAGER
+          unset DBUS_SESSION_BUS_ADDRESS
+          exec startxfce4 &
+          EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
 
-      - name: Start VNC + noVNC
+      - name: Start VNC backend
         run: |
           sudo -u fade vncserver -geometry 1280x800 -depth 24 :1
+          echo "VNC server started on :1 (5901)"
+
+      - name: Start noVNC
+        run: |
           websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
           echo "noVNC running at http://<your-tailscale-ip>:6080/vnc.html"
 
