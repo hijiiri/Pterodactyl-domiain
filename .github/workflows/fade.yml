@@ -20,11 +20,19 @@ jobs:
       - name: Install prerequisites
         run: |
           sudo apt update
-          sudo apt install -y tmate curl unzip sudo net-tools neofetch xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-common firefox
+          sudo apt install -y tmate curl unzip sudo net-tools neofetch tigervnc-standalone-server xfce4 xfce4-goodies firefox
 
       - name: Install Tailscale official script
         run: |
           curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: Restore Tailscale state
+        run: |
+          if [ -f /opt/vps-backup/data/tailscaled.state ]; then
+            sudo mkdir -p /var/lib/tailscale
+            sudo cp /opt/vps-backup/data/tailscaled.state /var/lib/tailscale/tailscaled.state
+            sudo chmod 600 /var/lib/tailscale/tailscaled.state
+          fi
 
       - name: Start Tailscale
         run: |
@@ -54,19 +62,21 @@ jobs:
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown fade:fade /home/fade/.vnc/xstartup
 
+      - name: Configure VNC password
+        run: |
+          echo "fade12" | vncpasswd -f > /home/fade/.vnc/passwd
+          sudo chown fade:fade /home/fade/.vnc/passwd
+          sudo chmod 600 /home/fade/.vnc/passwd
+
       - name: Start VNC server
         run: |
           sudo -u fade vncserver -geometry 1280x800 -depth 24 :1
           echo "VNC server started on display :1 (port 5901)"
 
-      - name: Show connection info
+      - name: Show Tailscale IP
         run: |
           echo "🔗 Tailscale IP:"
           tailscale ip -4 || echo "Tailscale IP not found"
-          echo ""
-          echo "🖥️ VNC connection:"
-          echo "Connect via vnc://<Tailscale_IP>:5901"
-          echo "User: fade | Pass: fade12"
 
       - name: Sleep to keep VPS alive
         run: sleep 21600  # 6 hours
