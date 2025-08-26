@@ -17,43 +17,10 @@ jobs:
       - name: Set hostname to fade
         run: sudo hostnamectl set-hostname fade
 
-      - name: Download VPS backup (if any)
-        uses: actions/download-artifact@v4
-        with:
-          name: vps-backup
-          path: ./backup
-        continue-on-error: true
-
       - name: Install prerequisites
         run: |
           sudo apt update
-          sudo apt install -y tmate curl unzip sudo net-tools neofetch
-
-      - name: Install Tailscale official script
-        run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
-
-      - name: Restore backup files
-        run: |
-          if [ -f ./backup/backup.zip ]; then
-            unzip -o ./backup/backup.zip -d /
-          else
-            echo "No backup found, starting fresh"
-          fi
-
-      - name: Restore Tailscale state
-        run: |
-          if [ -f /opt/vps-backup/data/tailscaled.state ]; then
-            sudo mkdir -p /var/lib/tailscale
-            sudo cp /opt/vps-backup/data/tailscaled.state /var/lib/tailscale/tailscaled.state
-            sudo chmod 600 /var/lib/tailscale/tailscaled.state
-          fi
-
-      - name: Start Tailscale
-        run: |
-          sudo tailscaled &
-          sleep 8
-          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname=fade || echo "Tailscale already up"
+          sudo apt install -y curl unzip sudo net-tools neofetch software-properties-common apt-transport-https gnupg
 
       - name: Create user fade with sudo
         run: |
@@ -64,29 +31,64 @@ jobs:
             echo "fade ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/fade
           fi
 
-      - name: Start tmate session for SSH access
-        uses: mxschmitt/action-tmate@v3
+      - name: Install XFCE desktop + TigerVNC + noVNC
+        run: |
+          sudo apt install -y xfce4 xfce4-goodies xorg dbus-x11 x11-utils tigervnc-standalone-server novnc websockify
+          
+          # Setup VNC password
+          sudo mkdir -p /home/fade/.vnc
+          echo "fade12" | vncpasswd -f | sudo tee /home/fade/.vnc/passwd > /dev/null
+          sudo chown -R fade:fade /home/fade/.vnc
+          sudo chmod 600 /home/fade/.vnc/passwd
+          
+          # Setup VNC to launch XFCE
+          echo "#!/bin/bash
+          xrdb \$HOME/.Xresources
+          startxfce4 &" | sudo tee /home/fade/.vnc/xstartup
+          sudo chmod +x /home/fade/.vnc/xstartup
+          sudo chown fade:fade /home/fade/.vnc/xstartup
+          
+          # Start VNC server (always display :1 → port 5901)
+          sudo runuser -l fade -c "vncserver -kill :1 || true"
+          sudo runuser -l fade -c "vncserver :1 -geometry 1280x800 -depth 24"
+          
+          # Start noVNC bridge (browser access on port 6080)
+          mkdir -p ~/novnc && cd ~/novnc
+          ln -s /usr/share/novnc/vnc.html index.html || true
+          websockify -D --web . 6080 localhost:5901
 
-      - name: Show Tailscale IP and tmate info
+      - name: Install LibreWolf browser
+        run: |
+          # Import LibreWolf signing key
+          curl -fsSL https://deb.librewolf.net/keyring.gpg | sudo gpg --dearmor -o /usr/share/keyrings/librewolf.gpg
+          
+          # Add LibreWolf repo (for Ubuntu 22.04 runner = jammy)
+          echo "deb [signed-by=/usr/share/keyrings/librewolf.gpg arch=amd64] https://deb.librewolf.net jammy main" | sudo tee /etc/apt/sources.list.d/librewolf.list
+          
+          # Update + install
+          sudo apt update
+          sudo apt install -y librewolf
+
+      - name: Install Tailscale official script
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: Start Tailscale
+        run: |
+          sudo tailscaled &
+          sleep 8
+          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname=fade || echo "Tailscale already up"
+
+      - name: Show connection info (Tailscale + noVNC)
         run: |
           echo "🔗 Tailscale IP:"
           tailscale ip -4 || echo "Tailscale IP not found"
           echo ""
-          echo "🔑 tmate SSH session:"
-          cat $HOME/.tmate.sock/ssh
+          echo "🌐 noVNC (browser GUI):"
+          echo "http://<TAILSCALE-IP>:6080/vnc.html"
+          echo "Login user: fade  |  password: fade12"
+          echo ""
+          echo "🚀 LibreWolf is preinstalled — launch it from the XFCE menu!"
 
       - name: Sleep to keep VPS alive
         run: sleep 21600  # 6 hours
-
-      - name: Backup VPS data and tailscale state
-        run: |
-          sudo mkdir -p /opt/vps-backup/data
-          sudo cp /var/lib/tailscale/tailscaled.state /opt/vps-backup/data/
-          sudo chown -R $USER:$USER /opt/vps-backup
-          zip -r backup.zip /opt/vps-backup
-
-      - name: Upload VPS backup artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vps-backup
-          path: backup.zip
