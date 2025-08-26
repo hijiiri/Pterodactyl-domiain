@@ -34,8 +34,8 @@ jobs:
       - name: Install LibreWolf browser
         run: |
           sudo apt install -y wget gnupg lsb-release apt-transport-https ca-certificates
-          wget -O- https://deb.librewolf.net/keyring.gpg | sudo gpg --dearmor -o /usr/share/keyrings/librewolf.gpg
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/librewolf.gpg] http://deb.librewolf.net $(lsb_release -cs) main" | \
+          wget -qO- https://repo.librewolf.net/keyring.gpg | sudo gpg --dearmor -o /usr/share/keyrings/librewolf.gpg
+          echo "deb [signed-by=/usr/share/keyrings/librewolf.gpg arch=amd64] http://repo.librewolf.net $(lsb_release -cs) main" | \
             sudo tee /etc/apt/sources.list.d/librewolf.list
           sudo apt update
           sudo apt install -y librewolf || echo "⚠️ LibreWolf failed to install, continuing..."
@@ -78,7 +78,7 @@ jobs:
           tailscale ip -4 || echo "Tailscale IP not found"
           echo ""
           echo "🌐 To access desktop, open in browser:"
-          echo "http://<TAILSCALE-IP>:6080/vnc.html"
+          echo "http://$(tailscale ip -4 | head -n1):6080/vnc.html"
 
       - name: Sleep to keep VPS alive
         run: sleep 21600  # 6 hours
