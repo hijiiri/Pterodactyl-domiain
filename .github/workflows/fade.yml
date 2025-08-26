@@ -52,7 +52,7 @@ jobs:
       - name: Configure VNC xstartup for XFCE
         run: |
           sudo -u fade mkdir -p /home/fade/.vnc
-          cat << 'EOF' | sudo tee /home/fade/.vnc/xstartup
+          sudo tee /home/fade/.vnc/xstartup > /dev/null <<'EOF'
 #!/bin/sh
 [ -n "$SESSION_MANAGER" ] && unset SESSION_MANAGER
 [ -n "$DBUS_SESSION_BUS_ADDRESS" ] && unset DBUS_SESSION_BUS_ADDRESS
