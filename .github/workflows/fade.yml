@@ -7,22 +7,13 @@ jobs:
   ubuntu:
     runs-on: ubuntu-latest
     steps:
-      - name: Install desktop + noVNC + Tailscale
+      - name: Install desktop + noVNC
         run: |
           sudo apt update
-          sudo apt install -y curl gnupg lsb-release \
-              xfce4 xfce4-goodies \
+          sudo apt install -y xfce4 xfce4-goodies \
               tigervnc-standalone-server tigervnc-common \
               novnc python3-websockify firefox
-
-          # Add Tailscale repo
-          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg | \
-            sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list | \
-            sudo tee /etc/apt/sources.list.d/tailscale.list >/dev/null
-
-          sudo apt update
-          sudo apt install -y tailscale
+          curl -fsSL https://tailscale.com/install.sh | sh
 
       - name: Add user
         run: |
@@ -33,7 +24,7 @@ jobs:
       - name: Configure VNC xstartup
         run: |
           sudo -u fade mkdir -p /home/fade/.vnc
-          cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
+          cat > /home/fade/.vnc/xstartup <<EOF
 #!/bin/bash
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
