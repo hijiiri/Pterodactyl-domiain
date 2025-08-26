@@ -1,61 +1,45 @@
-name: Continuous Persistent VPS with noVNC
+name: fade
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
   workflow_dispatch:
 
 jobs:
-  vps-session:
+  ubuntu:
     runs-on: ubuntu-latest
-    timeout-minutes: 350  # ~6 hours
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set hostname to fade
-        run: sudo hostnamectl set-hostname fade
-
-      - name: Install prerequisites
+      - name: Install desktop + noVNC
         run: |
           sudo apt update
-          sudo apt install -y \
-            xfce4 xfce4-goodies xorg dbus-x11 \
-            novnc websockify python3-websockify \
-            firefox \
-            tailscale curl unzip net-tools
+          sudo apt install -y xfce4 xfce4-goodies \
+              tigervnc-standalone-server tigervnc-common \
+              novnc python3-websockify firefox tailscale
+
+      - name: Add user
+        run: |
+          sudo useradd -m fade || true
+          echo "fade:fade" | sudo chpasswd
+          sudo usermod -aG sudo fade
+
+      - name: Configure VNC xstartup
+        run: |
+          sudo -u fade mkdir -p /home/fade/.vnc
+          cat <<EOF | sudo tee /home/fade/.vnc/xstartup
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec startxfce4 &
+EOF
+          sudo chmod +x /home/fade/.vnc/xstartup
+          sudo chown -R fade:fade /home/fade/.vnc
+
+      - name: Start VNC + noVNC
+        run: |
+          sudo -u fade vncserver -geometry 1280x800 -depth 24 :1
+          websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
+          echo "noVNC running at http://<your-tailscale-ip>:6080/vnc.html"
 
       - name: Start Tailscale
         run: |
-          sudo tailscaled &
-          sleep 8
-          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname=fade || echo "Tailscale already up"
-
-      - name: Create user fade with sudo
-        run: |
-          if ! id -u fade >/dev/null 2>&1; then
-            sudo useradd -m -s /bin/bash fade
-            echo "fade:fade12" | sudo chpasswd
-            sudo usermod -aG sudo fade
-            echo "fade ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/fade
-          fi
-
-      - name: Start XFCE and noVNC
-        run: |
-          # Create a display
-          sudo -u fade Xorg :1 -geometry 1280x800 -depth 24 vt1 &
+          sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
           sleep 5
-          # Start XFCE session
-          sudo -u fade startxfce4 --display=:1 &
-          sleep 5
-          # Launch websockify for browser access
-          websockify --web=/usr/share/novnc/ 6080 localhost:5901 &
-
-      - name: Show connection info
-        run: |
-          echo "🌐 Connect to noVNC in your browser:"
-          echo "http://$(tailscale ip -4 | head -n1):6080/vnc.html"
-
-      - name: Keep session alive
-        run: sleep 21600  # 6 hours
+          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname fade
