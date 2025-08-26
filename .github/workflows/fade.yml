@@ -1,4 +1,4 @@
-name: Continuous Persistent VPS
+name: Continuous Persistent VPS with noVNC
 
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
 jobs:
   vps-session:
     runs-on: ubuntu-latest
-    timeout-minutes: 350  # Just under 6 hours
+    timeout-minutes: 350  # ~6 hours
 
     steps:
       - name: Checkout repo
@@ -20,20 +20,11 @@ jobs:
       - name: Install prerequisites
         run: |
           sudo apt update
-          sudo apt install -y xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-common \
-            dbus-x11 curl unzip sudo net-tools neofetch firefox
-
-      - name: Install Tailscale official script
-        run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
-
-      - name: Restore Tailscale state
-        run: |
-          if [ -f /opt/vps-backup/data/tailscaled.state ]; then
-            sudo mkdir -p /var/lib/tailscale
-            sudo cp /opt/vps-backup/data/tailscaled.state /var/lib/tailscale/tailscaled.state
-            sudo chmod 600 /var/lib/tailscale/tailscaled.state
-          fi
+          sudo apt install -y \
+            xfce4 xfce4-goodies xorg dbus-x11 \
+            novnc websockify python3-websockify \
+            firefox \
+            tailscale curl unzip net-tools
 
       - name: Start Tailscale
         run: |
@@ -50,36 +41,21 @@ jobs:
             echo "fade ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/fade
           fi
 
-      - name: Configure VNC xstartup for XFCE
+      - name: Start XFCE and noVNC
         run: |
-          sudo -u fade mkdir -p /home/fade/.vnc
-          sudo tee /home/fade/.vnc/xstartup > /dev/null <<'EOF'
-          #!/bin/sh
-          unset SESSION_MANAGER
-          unset DBUS_SESSION_BUS_ADDRESS
-          xrdb $HOME/.Xresources
-          exec startxfce4
-          EOF
-          sudo chmod +x /home/fade/.vnc/xstartup
-          sudo chown fade:fade /home/fade/.vnc/xstartup
+          # Create a display
+          sudo -u fade Xorg :1 -geometry 1280x800 -depth 24 vt1 &
+          sleep 5
+          # Start XFCE session
+          sudo -u fade startxfce4 --display=:1 &
+          sleep 5
+          # Launch websockify for browser access
+          websockify --web=/usr/share/novnc/ 6080 localhost:5901 &
 
-      - name: Set VNC password
+      - name: Show connection info
         run: |
-          echo -e "fade12\nfade12\nn" | sudo -u fade vncpasswd
+          echo "🌐 Connect to noVNC in your browser:"
+          echo "http://$(tailscale ip -4 | head -n1):6080/vnc.html"
 
-      - name: Start VNC server
-        run: |
-          sudo -u fade vncserver -geometry 1280x800 -depth 24 :1
-          echo "✅ VNC server started on display :1 (port 5901)"
-
-      - name: Show Tailscale connection info
-        run: |
-          TS_IP=$(tailscale ip -4 | head -n 1 || echo "not-found")
-          echo "=========================================="
-          echo "🔑 VNC Password: fade12"
-          echo "🔗 Connect via your VNC viewer using:"
-          echo "    ${TS_IP}:5901"
-          echo "=========================================="
-
-      - name: Sleep to keep VPS alive
+      - name: Keep session alive
         run: sleep 21600  # 6 hours
