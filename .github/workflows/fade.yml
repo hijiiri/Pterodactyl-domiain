@@ -12,10 +12,8 @@ jobs:
           sudo apt update
           sudo apt install -y xfce4 xfce4-goodies \
               tigervnc-standalone-server tigervnc-common \
-              novnc python3-websockify firefox
-
-          # Install Tailscale
-          curl -fsSL https://tailscale.com/install.sh | sh
+              novnc python3-websockify firefox \
+              tailscale
 
       - name: Add user
         run: |
@@ -34,6 +32,12 @@ jobs:
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
+
+      - name: Configure VNC password
+        run: |
+          echo "fade" | vncpasswd -f > /home/fade/.vnc/passwd
+          sudo chown fade:fade /home/fade/.vnc/passwd
+          sudo chmod 600 /home/fade/.vnc/passwd
 
       - name: Start VNC backend
         run: |
