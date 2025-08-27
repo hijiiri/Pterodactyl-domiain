@@ -1,18 +1,25 @@
 name: fade
 
 on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
   workflow_dispatch:
 
 jobs:
-  ubuntu:
+  vps-session:
     runs-on: ubuntu-latest
+    timeout-minutes: 360  # ~6 hours
+
     steps:
-      - name: Install desktop + noVNC + Tailscale
+      - name: Install desktop + noVNC
         run: |
           sudo apt update
           sudo apt install -y xfce4 xfce4-goodies \
               tigervnc-standalone-server tigervnc-common \
-              novnc python3-websockify firefox curl
+              novnc python3-websockify firefox
+
+      - name: Install Tailscale
+        run: |
           curl -fsSL https://tailscale.com/install.sh | sh
 
       - name: Add user
@@ -21,6 +28,13 @@ jobs:
           echo "fade:fade" | sudo chpasswd
           sudo usermod -aG sudo fade
 
+      - name: Configure VNC password
+        run: |
+          sudo -u fade mkdir -p /home/fade/.vnc
+          echo "fade" | vncpasswd -f | sudo tee /home/fade/.vnc/passwd
+          sudo chmod 600 /home/fade/.vnc/passwd
+          sudo chown -R fade:fade /home/fade/.vnc
+
       - name: Configure VNC xstartup
         run: |
           sudo -u fade mkdir -p /home/fade/.vnc
@@ -28,17 +42,10 @@ jobs:
           #!/bin/bash
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
-          cd $HOME
-          /usr/bin/xfce4-session
+          exec startxfce4 &
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
-
-      - name: Set VNC password
-        run: |
-          echo "fade" | vncpasswd -f | sudo -u fade tee /home/fade/.vnc/passwd > /dev/null
-          sudo chmod 600 /home/fade/.vnc/passwd
-          sudo chown fade:fade /home/fade/.vnc/passwd
 
       - name: Start VNC backend
         run: |
@@ -56,3 +63,6 @@ jobs:
           sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
           sleep 5
           sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname fade
+
+      - name: Keep alive
+        run: sleep 21600
