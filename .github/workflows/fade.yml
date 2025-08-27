@@ -37,17 +37,17 @@ jobs:
           echo "fade:fade" | sudo chpasswd
           sudo usermod -aG sudo fade
 
-      - name: Configure systemd user session + VNC xstartup
+      - name: Configure VNC xstartup
         run: |
           sudo -u fade mkdir -p /home/fade/.vnc
           cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
           #!/bin/sh
-          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export XDG_RUNTIME_DIR=/tmp/runtime-$(id -u)
           mkdir -p $XDG_RUNTIME_DIR
           chmod 700 $XDG_RUNTIME_DIR
 
-          # Start LXDE inside a fake login session with machinectl
-          exec /usr/bin/machinectl shell --uid=$(id -u)@ /bin/bash -lc "dbus-launch --exit-with-session startlxde"
+          # Start LXDE inside a dbus session
+          exec dbus-launch --exit-with-session startlxde
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
