@@ -14,7 +14,7 @@ jobs:
       - name: Install desktop + noVNC
         run: |
           sudo apt update
-          sudo apt install -y xfce4 xfce4-goodies \
+          sudo apt install -y xfce4 xfce4-goodies dbus-x11 \
               tigervnc-standalone-server tigervnc-common \
               novnc python3-websockify firefox
 
