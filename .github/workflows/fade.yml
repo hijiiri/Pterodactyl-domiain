@@ -13,8 +13,6 @@ jobs:
           sudo apt install -y xfce4 xfce4-goodies \
               tigervnc-standalone-server tigervnc-common \
               novnc python3-websockify firefox curl
-          
-          # Install Tailscale (official script)
           curl -fsSL https://tailscale.com/install.sh | sh
 
       - name: Add user
@@ -27,18 +25,18 @@ jobs:
         run: |
           sudo -u fade mkdir -p /home/fade/.vnc
           cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
-          #!/bin/bash
-          unset SESSION_MANAGER
-          unset DBUS_SESSION_BUS_ADDRESS
-          cd $HOME
-          startxfce4 &
-          EOF
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+cd $HOME
+/usr/bin/xfce4-session
+EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
 
       - name: Set VNC password
         run: |
-          echo "fade" | vncpasswd -f | sudo tee /home/fade/.vnc/passwd >/dev/null
+          echo "fade" | vncpasswd -f | sudo -u fade tee /home/fade/.vnc/passwd > /dev/null
           sudo chmod 600 /home/fade/.vnc/passwd
           sudo chown fade:fade /home/fade/.vnc/passwd
 
