@@ -33,11 +33,7 @@ jobs:
           sudo -u fade mkdir -p /home/fade/.vnc
           cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
           #!/bin/sh
-          unset SESSION_MANAGER
-          unset DBUS_SESSION_BUS_ADDRESS
-          exec startxfce4
-          [ -x /etc/vnc/xstartup ] && exec /etc/vnc/xstartup
-          [ -r $HOME/.Xresources ] && xrdb $HOME/.Xresources
+          exec xfce4-session
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
