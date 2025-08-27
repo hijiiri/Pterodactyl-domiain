@@ -43,6 +43,9 @@ jobs:
           sudo -u fade mkdir -p /home/fade/.vnc
           cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
           #!/bin/sh
+          export XDG_RUNTIME_DIR=/tmp/runtime-fade
+          mkdir -p $XDG_RUNTIME_DIR
+          chmod 700 $XDG_RUNTIME_DIR
           exec startlxde
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
