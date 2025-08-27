@@ -67,17 +67,17 @@ jobs:
           sudo -u fade vncserver -geometry 1280x800 -depth 24 :1
           echo "✅ VNC server started on :1 (port 5901)"
 
-      - name: Start noVNC
-        run: |
-          websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
-          TS_IP=$(tailscale ip -4 || echo "<your-tailscale-ip>")
-          echo "🌐 noVNC running at http://$TS_IP:6080/vnc.html"
-
       - name: Start Tailscale
         run: |
           sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
           sleep 5
           sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname fade
+
+      - name: Start noVNC
+        run: |
+          websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
+          TS_IP=$(tailscale ip -4)
+          echo "🌐 noVNC running at http://$TS_IP:6080/vnc.html"
 
       - name: Keep alive
         run: sleep 21600
