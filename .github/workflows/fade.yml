@@ -14,8 +14,6 @@ jobs:
       - name: System upgrade
         run: |
           sudo apt update
-          sudo apt upgrade -y
-          sudo apt autoremove -y
 
       - name: Install desktop + noVNC
         run: |
@@ -23,7 +21,7 @@ jobs:
               tigervnc-standalone-server tigervnc-common \
               novnc python3-websockify \
               software-properties-common wget \
-              xdg-desktop-portal xdg-desktop-portal-gtk systemd
+              xdg-desktop-portal xdg-desktop-portal-gtk systemd systemd-container
 
       - name: Install Firefox (Snap version)
         run: |
@@ -47,10 +45,9 @@ jobs:
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           mkdir -p $XDG_RUNTIME_DIR
           chmod 700 $XDG_RUNTIME_DIR
-          # Start systemd --user for portals
-          systemd --user &
-          # Ensure DBus for portals
-          dbus-launch --exit-with-session startlxde
+
+          # Start LXDE inside a fake login session with machinectl
+          exec /usr/bin/machinectl shell --uid=$(id -u)@ /bin/bash -lc "dbus-launch --exit-with-session startlxde"
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
@@ -76,7 +73,7 @@ jobs:
       - name: Start noVNC
         run: |
           websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
-          TS_IP=$(tailscale ip -4)
+          TS_IP=$(tailscale ip -4 | head -n1 || echo "<your-tailscale-ip>")
           echo "🌐 noVNC running at http://$TS_IP:6080/vnc.html"
 
       - name: Keep alive
