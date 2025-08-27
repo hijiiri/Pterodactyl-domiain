@@ -11,10 +11,10 @@ jobs:
     timeout-minutes: 360  # 6 hours
 
     steps:
-      - name: Install LXDE + noVNC
+      - name: Install desktop + noVNC
         run: |
           sudo apt update
-          sudo apt install -y lxde dbus-x11 \
+          sudo apt install -y lxde lxsession dbus-x11 \
               tigervnc-standalone-server tigervnc-common \
               novnc python3-websockify firefox
 
@@ -33,7 +33,7 @@ jobs:
           sudo -u fade mkdir -p /home/fade/.vnc
           cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
           #!/bin/sh
-          exec startlxsession
+          exec lxsession
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
