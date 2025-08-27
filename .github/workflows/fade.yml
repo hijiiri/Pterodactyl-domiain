@@ -17,22 +17,17 @@ jobs:
           sudo apt upgrade -y
           sudo apt autoremove -y
 
-      - name: Install desktop + noVNC + portals
+      - name: Install desktop + noVNC
         run: |
-          sudo apt install -y lxde dbus-x11 systemd \
+          sudo apt install -y lxde dbus-x11 \
               tigervnc-standalone-server tigervnc-common \
-              novnc python3-websockify software-properties-common \
-              xdg-desktop-portal xdg-desktop-portal-gtk
+              novnc python3-websockify \
+              software-properties-common wget \
+              xdg-desktop-portal xdg-desktop-portal-gtk systemd
 
-      - name: Install Firefox (Deb version, not Snap)
+      - name: Install Firefox (Snap version)
         run: |
-          sudo snap remove firefox || true
-          sudo add-apt-repository -y ppa:mozillateam/ppa
-          echo 'Package: firefox*' | sudo tee /etc/apt/preferences.d/mozillateamppa
-          echo 'Pin: release o=LP-PPA-mozillateam' | sudo tee -a /etc/apt/preferences.d/mozillateamppa
-          echo 'Pin-Priority: 501' | sudo tee -a /etc/apt/preferences.d/mozillateamppa
-          sudo apt update
-          sudo apt install -y firefox
+          sudo snap install firefox
 
       - name: Install Tailscale
         run: |
@@ -43,20 +38,19 @@ jobs:
           sudo useradd -m fade || true
           echo "fade:fade" | sudo chpasswd
           sudo usermod -aG sudo fade
-          # Prepare runtime dir for systemd user services
-          sudo mkdir -p /run/user/1001
-          sudo chown fade:fade /run/user/1001
-          sudo chmod 700 /run/user/1001
 
-      - name: Configure VNC xstartup
+      - name: Configure systemd user session + VNC xstartup
         run: |
           sudo -u fade mkdir -p /home/fade/.vnc
           cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
           #!/bin/sh
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          systemctl --user import-environment DISPLAY XDG_RUNTIME_DIR
-          dbus-update-activation-environment --systemd DISPLAY XDG_RUNTIME_DIR
-          exec startlxde
+          mkdir -p $XDG_RUNTIME_DIR
+          chmod 700 $XDG_RUNTIME_DIR
+          # Start systemd --user for portals
+          systemd --user &
+          # Ensure DBus for portals
+          dbus-launch --exit-with-session startlxde
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
@@ -67,12 +61,6 @@ jobs:
           sudo chown fade:fade /home/fade/.vnc/passwd
           sudo chmod 600 /home/fade/.vnc/passwd
 
-      - name: Start systemd --user session for fade
-        run: |
-          sudo -u fade dbus-launch --exit-with-session systemd --user &
-          sleep 3
-          echo "✅ systemd user session started for fade"
-
       - name: Start VNC backend
         run: |
           cd /home/fade
@@ -82,15 +70,14 @@ jobs:
       - name: Start noVNC
         run: |
           websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
-          echo "🌐 noVNC started"
+          TS_IP=$(tailscale ip -4 || echo "<your-tailscale-ip>")
+          echo "🌐 noVNC running at http://$TS_IP:6080/vnc.html"
 
-      - name: Start Tailscale + Print Access URL
+      - name: Start Tailscale
         run: |
           sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
           sleep 5
           sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname fade
-          TAILSCALE_IP=$(tailscale ip -4 | head -n1)
-          echo "🌐 Access your desktop at: http://$TAILSCALE_IP:6080/vnc.html"
 
       - name: Keep alive
         run: sleep 21600
