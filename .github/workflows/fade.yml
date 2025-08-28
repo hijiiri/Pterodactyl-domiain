@@ -1,20 +1,16 @@
-name: Ubuntu Desktop with noVNC + Tailscale
+name: noVNC LXDE with Firefox ESR
 
 on:
   workflow_dispatch:
-    inputs:
-      geometry:
-        description: "VNC geometry (resolution)"
-        required: false
-        default: "1280x800"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-
     steps:
-      - name: Build systemd desktop image
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Write Dockerfile
         run: |
           cat > Dockerfile <<'EOF'
           FROM ubuntu:22.04
@@ -72,56 +68,32 @@ jobs:
           EOL"
           EOF
 
-          docker build -t novnc-lxde:latest .
+      - name: Build Docker image
+        run: docker build -t novnc-lxde:latest .
 
-      - name: Run container
+      - name: Run container with systemd
         run: |
-          docker run -d \
-            --name desktop \
-            --privileged \
-            --cgroupns=host \
-            --tmpfs /run \
-            --tmpfs /run/lock \
-            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            -e GEOMETRY="${{ github.event.inputs.geometry }}" \
-            -e TAILSCALE_AUTHKEY="${{ secrets.TAILSCALE_AUTHKEY }}" \
-            novnc-lxde:latest
+          docker run -d --privileged --name novnc \
+            -e TAILSCALE_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }} \
+            -p 6080:6080 -p 5901:5901 novnc-lxde:latest /sbin/init
 
-      - name: Wait for services
+      - name: Start services inside container
         run: |
-          timeout 60s bash -lc 'until docker exec desktop systemctl is-system-running --wait; do sleep 2; done' || true
-          docker exec desktop systemctl status dbus systemd-logind || true
+          docker exec novnc systemctl enable vncserver@:1
+          docker exec novnc systemctl enable novnc
+          docker exec novnc systemctl start vncserver@:1
+          docker exec novnc systemctl start novnc
+          docker exec novnc tailscaled --state=/tmp/tailscale.state --socket=/tmp/tailscale.sock &
+          sleep 3
+          docker exec novnc tailscale up --authkey=${{ secrets.TAILSCALE_AUTHKEY }}
 
-      - name: Configure VNC password and geometry
+      - name: Generate random VNC password
         run: |
-          PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c12)
-          echo "$PASS" > vnc-password.txt
-          docker exec -u dev desktop bash -lc "printf '%s\n%s\nno\n' $PASS $PASS | vncpasswd"
-          sed -i "s/1280x800/${{ github.event.inputs.geometry }}/" /etc/systemd/system/vncserver@.service
-          docker exec desktop systemctl daemon-reload
-          docker exec desktop systemctl restart vncserver@:1
-          docker exec desktop systemctl restart novnc
+          PASS=$(openssl rand -base64 12)
+          echo $PASS | docker exec -i novnc vncpasswd -f > /home/runner/.vncpass
+          echo "Your VNC password is: $PASS"
+          echo "You can access noVNC in your browser:"
+          echo "👉 http://$(curl -s ifconfig.me):6080/vnc.html?host=$(curl -s ifconfig.me)&port=6080"
 
-      - name: Start Tailscale
-        run: |
-          docker exec -d desktop tailscaled
-          docker exec desktop tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname github-novnc
-          docker exec desktop tailscale ip -4 > tailscale-ip.txt
-
-      - name: Show connection info
-        run: |
-          TS_IP=$(cat tailscale-ip.txt)
-          VNC_PASS=$(cat vnc-password.txt)
-          echo "noVNC is running: http://$TS_IP:6080/vnc.html"
-          echo "Your VNC password: $VNC_PASS"
-
-      - name: Add run summary
-        run: |
-          TS_IP=$(cat tailscale-ip.txt)
-          VNC_PASS=$(cat vnc-password.txt)
-          echo "### Access Desktop" >> $GITHUB_STEP_SUMMARY
-          echo "[Open noVNC](http://$TS_IP:6080/vnc.html)" >> $GITHUB_STEP_SUMMARY
-          echo "**VNC Password:** $VNC_PASS" >> $GITHUB_STEP_SUMMARY
-
-      - name: Keep alive 6 hours
+      - name: Keep alive for 6 hours
         run: sleep 21600
