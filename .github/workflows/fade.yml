@@ -1,4 +1,4 @@
-name: noVNC LXDE with Firefox ESR
+name: Build noVNC LXDE
 
 on:
   workflow_dispatch:
@@ -10,7 +10,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Write Dockerfile
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build noVNC LXDE image
         run: |
           cat > Dockerfile <<'EOF'
           FROM ubuntu:22.04
@@ -34,7 +37,7 @@ jobs:
 
           # systemd service for VNC
           RUN mkdir -p /etc/systemd/system && \
-              bash -c "cat > /etc/systemd/system/vncserver@.service <<'EOL'
+              cat <<'EOL' > /etc/systemd/system/vncserver@.service
           [Unit]
           Description=Start TigerVNC server at %i
           After=syslog.target network.target
@@ -50,10 +53,10 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          EOL"
+          EOL
 
           # systemd service for noVNC
-          RUN bash -c "cat > /etc/systemd/system/novnc.service <<'EOL'
+          RUN cat <<'EOL' > /etc/systemd/system/novnc.service
           [Unit]
           Description=noVNC server
           After=network.target
@@ -65,35 +68,7 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          EOL"
+          EOL
           EOF
 
-      - name: Build Docker image
-        run: docker build -t novnc-lxde:latest .
-
-      - name: Run container with systemd
-        run: |
-          docker run -d --privileged --name novnc \
-            -e TAILSCALE_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }} \
-            -p 6080:6080 -p 5901:5901 novnc-lxde:latest /sbin/init
-
-      - name: Start services inside container
-        run: |
-          docker exec novnc systemctl enable vncserver@:1
-          docker exec novnc systemctl enable novnc
-          docker exec novnc systemctl start vncserver@:1
-          docker exec novnc systemctl start novnc
-          docker exec novnc tailscaled --state=/tmp/tailscale.state --socket=/tmp/tailscale.sock &
-          sleep 3
-          docker exec novnc tailscale up --authkey=${{ secrets.TAILSCALE_AUTHKEY }}
-
-      - name: Generate random VNC password
-        run: |
-          PASS=$(openssl rand -base64 12)
-          echo $PASS | docker exec -i novnc vncpasswd -f > /home/runner/.vncpass
-          echo "Your VNC password is: $PASS"
-          echo "You can access noVNC in your browser:"
-          echo "👉 http://$(curl -s ifconfig.me):6080/vnc.html?host=$(curl -s ifconfig.me)&port=6080"
-
-      - name: Keep alive for 6 hours
-        run: sleep 21600
+          docker build -t novnc-lxde:latest .
