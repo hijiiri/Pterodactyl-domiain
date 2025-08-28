@@ -9,23 +9,28 @@ jobs:
   vps-session:
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6 hours
+    container:
+      image: jrei/systemd-ubuntu:24.04
+      options: --privileged  # needed for full systemd
 
     steps:
       - name: System update
         run: |
-          sudo apt update
+          apt update
 
-      - name: Install desktop + noVNC
+      - name: Install desktop + noVNC (LXDE only)
         run: |
-          sudo apt install -y lxde dbus-x11 \
+          DEBIAN_FRONTEND=noninteractive apt install -y \
+              lxde-core lxterminal \
               tigervnc-standalone-server tigervnc-common \
               novnc python3-websockify \
-              software-properties-common wget \
-              xdg-desktop-portal xdg-desktop-portal-gtk systemd
+              dbus-x11 xdg-utils xdg-user-dirs \
+              xdg-desktop-portal xdg-desktop-portal-gtk \
+              software-properties-common wget systemd
 
       - name: Install Firefox (Snap version)
         run: |
-          sudo snap install firefox
+          snap install firefox
 
       - name: Install Tailscale
         run: |
@@ -33,43 +38,44 @@ jobs:
 
       - name: Add user
         run: |
-          sudo useradd -m fade || true
-          echo "fade:fade" | sudo chpasswd
-          sudo usermod -aG sudo fade
+          useradd -m fade || true
+          echo "fade:fade" | chpasswd
+          usermod -aG sudo fade
 
       - name: Configure systemd user session + VNC xstartup
         run: |
           sudo -u fade mkdir -p /home/fade/.vnc
-          cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
+          cat <<'EOF' > /home/fade/.vnc/xstartup
           #!/bin/sh
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
 
-          # Start a dbus session bus if not running
+          # Start dbus session bus
           if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
             eval $(dbus-launch --sh-syntax)
-            export DBUS_SESSION_BUS_ADDRESS
-            export DBUS_SESSION_BUS_PID
           fi
 
-          # Fake a login session so apps stop complaining
+          # Fake login/session vars
           export XDG_SESSION_TYPE=x11
           export XDG_CURRENT_DESKTOP=lxde
           export XDG_SESSION_CLASS=user
           export XDG_SEAT=seat0
 
-          # Start LXDE inside dbus-run-session
-          exec dbus-run-session startlxde
+          # Import env into systemd user session
+          systemctl --user import-environment DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS || true
+
+          # Start LXDE
+          exec startlxde
           EOF
-          sudo chmod +x /home/fade/.vnc/xstartup
-          sudo chown -R fade:fade /home/fade/.vnc
+          chmod +x /home/fade/.vnc/xstartup
+          chown -R fade:fade /home/fade/.vnc
 
       - name: Set VNC password
         run: |
           echo "fade" | vncpasswd -f > /home/fade/.vnc/passwd
-          sudo chown fade:fade /home/fade/.vnc/passwd
-          sudo chmod 600 /home/fade/.vnc/passwd
+          chown fade:fade /home/fade/.vnc/passwd
+          chmod 600 /home/fade/.vnc/passwd
 
       - name: Start VNC backend
         run: |
@@ -79,9 +85,9 @@ jobs:
 
       - name: Start Tailscale
         run: |
-          sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
+          tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
           sleep 5
-          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname fade
+          tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname fade
 
       - name: Start noVNC
         run: |
