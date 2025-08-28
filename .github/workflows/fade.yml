@@ -13,14 +13,14 @@ jobs:
       - name: Start systemd container (privileged)
         run: |
           set -eux
-          docker pull ubuntu:22.04
+          docker pull jrei/systemd-ubuntu:22.04
           docker run -d --name sysd \
             --privileged \
             --cgroupns=host \
             -e DEBIAN_FRONTEND=noninteractive \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
             -p 6080:6080 \
-            ubuntu:22.04 /sbin/init
+            jrei/systemd-ubuntu:22.04
           sleep 4
           docker exec sysd bash -lc 'ps -p 1 -o comm='
 
@@ -45,7 +45,7 @@ jobs:
             usermod -aG sudo dev
             echo "dev ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/90-dev
 
-            # Generate random VNC password (12 alphanumeric chars)
+            # Generate random VNC password (12 chars)
             RANDPW=$(tr -dc A-Za-z0-9 </dev/urandom | head -c12)
             sudo -u dev mkdir -p /home/dev/.vnc
             printf "%s\n%s\n\n" "$RANDPW" "$RANDPW" | sudo -u dev vncpasswd
