@@ -8,13 +8,7 @@ on:
 jobs:
   vps-session:
     runs-on: ubuntu-latest
-    container:
-      image: jrei/systemd-ubuntu:24.04
-      options: --privileged
-    timeout-minutes: 360
-
-    env:
-      DEBIAN_FRONTEND: noninteractive  # ✅ globally applied
+    timeout-minutes: 360  # 6 hours
 
     steps:
       - name: System update
@@ -22,16 +16,15 @@ jobs:
           apt-get update
 
       - name: Install desktop + noVNC
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          apt-get install -y --no-install-recommends lxde dbus-x11 \
+          apt-get install -y --no-install-recommends \
+              lxde dbus-x11 \
               tigervnc-standalone-server tigervnc-common \
               novnc python3-websockify \
               software-properties-common wget \
-              xdg-desktop-portal xdg-desktop-portal-gtk systemd
-
-      - name: Install Firefox (APT version)
-        run: |
-          apt-get install -y --no-install-recommends firefox
+              xdg-desktop-portal xdg-desktop-portal-gtk systemd firefox
 
       - name: Install Tailscale
         run: |
@@ -39,25 +32,22 @@ jobs:
 
       - name: Add user
         run: |
-          useradd -m fade || true
+          useradd -m fade
           echo "fade:fade" | chpasswd
           usermod -aG sudo fade
 
       - name: Configure systemd user session + VNC xstartup
         run: |
-          sudo -u fade mkdir -p /home/fade/.vnc
-          cat <<'EOF' | tee /home/fade/.vnc/xstartup
+          mkdir -p /home/fade/.vnc
+          cat <<'EOF' > /home/fade/.vnc/xstartup
           #!/bin/sh
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
 
-          # Start a dbus session bus if not running
-          if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
-            eval $(dbus-launch --sh-syntax)
-            export DBUS_SESSION_BUS_ADDRESS
-            export DBUS_SESSION_BUS_PID
-          fi
+          eval $(dbus-launch --sh-syntax)
+          export DBUS_SESSION_BUS_ADDRESS
+          export DBUS_SESSION_BUS_PID
 
           # Fake a login session so apps stop complaining
           export XDG_SESSION_TYPE=x11
@@ -66,7 +56,7 @@ jobs:
           export XDG_SEAT=seat0
 
           # Ensure environment is exported for child processes
-          systemctl --user import-environment DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS || true
+          systemctl --user import-environment DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 
           # Start LXDE
           exec startlxde
@@ -82,8 +72,7 @@ jobs:
 
       - name: Start VNC backend
         run: |
-          cd /home/fade
-          sudo -u fade vncserver -geometry 1280x800 -depth 24 :1
+          su - fade -c "vncserver -geometry 1280x800 -depth 24 :1"
           echo "✅ VNC server started on :1 (port 5901)"
 
       - name: Start Tailscale
@@ -94,9 +83,8 @@ jobs:
 
       - name: Start noVNC
         run: |
-          websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
-          TS_IP=$(tailscale ip -4 | head -n1 || echo "<your-tailscale-ip>")
-          echo "🌐 noVNC running at http://$TS_IP:6080/vnc.html"
+          su - fade -c "websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &"
+          echo "🌐 noVNC running at http://$(tailscale ip -4):6080/vnc.html"
 
       - name: Keep alive
         run: sleep 21600
