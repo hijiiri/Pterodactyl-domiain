@@ -67,13 +67,13 @@ jobs:
 
       - name: Set VNC password
         run: |
-          su - fade -c "mkdir -p ~/.vnc && echo 'fade' | vncpasswd -f > ~/.vnc/passwd"
-          sudo chown fade:fade /home/fade/.vnc/passwd
+          sudo -u fade -i mkdir -p ~/.vnc
+          echo "fade" | vncpasswd -f | sudo -u fade -i tee ~/.vnc/passwd > /dev/null
           sudo chmod 600 /home/fade/.vnc/passwd
 
       - name: Start VNC backend
         run: |
-          su - fade -c "vncserver -geometry 1280x800 -depth 24 :1"
+          sudo -u fade -i vncserver -geometry 1280x800 -depth 24 :1
           echo "✅ VNC server started on :1 (port 5901)"
 
       - name: Start Tailscale
@@ -84,7 +84,7 @@ jobs:
 
       - name: Start noVNC
         run: |
-          su - fade -c "websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &"
+          sudo -u fade -i websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
           echo "🌐 noVNC running at http://$(tailscale ip -4):6080/vnc.html"
 
       - name: Keep alive
