@@ -33,7 +33,7 @@ jobs:
 
       - name: Add user
         run: |
-          sudo useradd -m -s /bin/bash fade
+          sudo useradd -m fade
           echo "fade:fade" | sudo chpasswd
           sudo usermod -aG sudo fade
 
@@ -50,16 +50,13 @@ jobs:
           export DBUS_SESSION_BUS_ADDRESS
           export DBUS_SESSION_BUS_PID
 
-          # Fake a login session so apps stop complaining
           export XDG_SESSION_TYPE=x11
           export XDG_CURRENT_DESKTOP=lxde
           export XDG_SESSION_CLASS=user
           export XDG_SEAT=seat0
 
-          # Ensure environment is exported for child processes
           systemctl --user import-environment DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 
-          # Start LXDE
           exec startlxde
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
@@ -67,13 +64,13 @@ jobs:
 
       - name: Set VNC password
         run: |
-          sudo -u fade -i mkdir -p ~/.vnc
-          echo "fade" | vncpasswd -f | sudo -u fade -i tee ~/.vnc/passwd > /dev/null
+          sudo -u fade HOME=/home/fade mkdir -p /home/fade/.vnc
+          echo "fade" | vncpasswd -f | sudo -u fade HOME=/home/fade tee /home/fade/.vnc/passwd > /dev/null
           sudo chmod 600 /home/fade/.vnc/passwd
 
       - name: Start VNC backend
         run: |
-          sudo -u fade -i vncserver -geometry 1280x800 -depth 24 :1
+          sudo -u fade HOME=/home/fade vncserver -geometry 1280x800 -depth 24 :1
           echo "✅ VNC server started on :1 (port 5901)"
 
       - name: Start Tailscale
@@ -84,7 +81,7 @@ jobs:
 
       - name: Start noVNC
         run: |
-          sudo -u fade -i websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
+          sudo -u fade HOME=/home/fade websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
           echo "🌐 noVNC running at http://$(tailscale ip -4):6080/vnc.html"
 
       - name: Keep alive
