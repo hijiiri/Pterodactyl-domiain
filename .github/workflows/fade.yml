@@ -8,29 +8,30 @@ on:
 jobs:
   vps-session:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hours
     container:
       image: jrei/systemd-ubuntu:24.04
-      options: --privileged  # needed for full systemd
+      options: --privileged
+    timeout-minutes: 360
+
+    env:
+      DEBIAN_FRONTEND: noninteractive  # ✅ globally applied
 
     steps:
       - name: System update
         run: |
-          apt update
+          apt-get update
 
-      - name: Install desktop + noVNC (LXDE only)
+      - name: Install desktop + noVNC
         run: |
-          DEBIAN_FRONTEND=noninteractive apt install -y \
-              lxde-core lxterminal \
+          apt-get install -y --no-install-recommends lxde dbus-x11 \
               tigervnc-standalone-server tigervnc-common \
               novnc python3-websockify \
-              dbus-x11 xdg-utils xdg-user-dirs \
-              xdg-desktop-portal xdg-desktop-portal-gtk \
-              software-properties-common wget systemd
+              software-properties-common wget \
+              xdg-desktop-portal xdg-desktop-portal-gtk systemd
 
-      - name: Install Firefox (Snap version)
+      - name: Install Firefox (APT version)
         run: |
-          snap install firefox
+          apt-get install -y --no-install-recommends firefox
 
       - name: Install Tailscale
         run: |
@@ -45,24 +46,26 @@ jobs:
       - name: Configure systemd user session + VNC xstartup
         run: |
           sudo -u fade mkdir -p /home/fade/.vnc
-          cat <<'EOF' > /home/fade/.vnc/xstartup
+          cat <<'EOF' | tee /home/fade/.vnc/xstartup
           #!/bin/sh
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
 
-          # Start dbus session bus
+          # Start a dbus session bus if not running
           if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
             eval $(dbus-launch --sh-syntax)
+            export DBUS_SESSION_BUS_ADDRESS
+            export DBUS_SESSION_BUS_PID
           fi
 
-          # Fake login/session vars
+          # Fake a login session so apps stop complaining
           export XDG_SESSION_TYPE=x11
           export XDG_CURRENT_DESKTOP=lxde
           export XDG_SESSION_CLASS=user
           export XDG_SEAT=seat0
 
-          # Import env into systemd user session
+          # Ensure environment is exported for child processes
           systemctl --user import-environment DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS || true
 
           # Start LXDE
