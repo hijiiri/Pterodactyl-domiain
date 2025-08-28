@@ -33,7 +33,7 @@ jobs:
 
       - name: Add user
         run: |
-          sudo useradd -m fade
+          sudo useradd -m -s /bin/bash fade
           echo "fade:fade" | sudo chpasswd
           sudo usermod -aG sudo fade
 
