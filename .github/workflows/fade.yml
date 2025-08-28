@@ -1,43 +1,50 @@
-name: Build noVNC LXDE (Debian)
+name: noVNC-LXDE Desktop
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 hours max
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Set up Docker
-        uses: docker/setup-buildx-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build noVNC LXDE image
+      - name: Build systemd-ready LXDE image
         run: |
           cat > Dockerfile <<'EOF'
           FROM debian:bullseye
 
           ENV DEBIAN_FRONTEND=noninteractive
 
-          RUN apt-get update && apt-get -y upgrade && \
+          # Add Tailscale repo
+          RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bullseye.gpg \
+              | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null && \
+              curl -fsSL https://pkgs.tailscale.com/stable/debian/bullseye.list \
+              | tee /etc/apt/sources.list.d/tailscale.list && \
+              apt-get update && apt-get -y upgrade && \
               apt-get install -y --no-install-recommends \
-                  ca-certificates curl sudo gosu dbus dbus-x11 \
-                  systemd udev \
+                  ca-certificates curl sudo gosu \
+                  systemd udev dbus dbus-x11 \
                   xauth x11-xserver-utils xterm \
-                  lxde-core openbox lightdm-gtk-greeter \
+                  lxde-core openbox \
                   tigervnc-standalone-server tigervnc-common \
                   novnc websockify supervisor \
                   software-properties-common gpg-agent \
-                  tailscale iproute2 firefox-esr && \
+                  iproute2 tailscale firefox-esr && \
               rm -rf /var/lib/apt/lists/*
 
           # Create user
           RUN useradd -m -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-          # systemd service for VNC
+          # Systemd service: VNC
           RUN mkdir -p /etc/systemd/system && \
-              cat <<'EOL' > /etc/systemd/system/vncserver@.service
+              bash -c "cat > /etc/systemd/system/vncserver@.service <<'EOL'
           [Unit]
           Description=Start TigerVNC server at %i
           After=syslog.target network.target
@@ -53,10 +60,10 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          EOL
+          EOL"
 
-          # systemd service for noVNC
-          RUN cat <<'EOL' > /etc/systemd/system/novnc.service
+          # Systemd service: noVNC
+          RUN bash -c "cat > /etc/systemd/system/novnc.service <<'EOL'
           [Unit]
           Description=noVNC server
           After=network.target
@@ -68,7 +75,37 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          EOL
+          EOL"
           EOF
 
           docker build -t novnc-lxde:latest .
+
+      - name: Run container with systemd
+        run: |
+          docker run -d --privileged --name desktop \
+            -e TAILSCALE_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }} \
+            --tmpfs /run --tmpfs /run/lock \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            novnc-lxde:latest /sbin/init
+
+      - name: Configure Tailscale + Start Services
+        run: |
+          # Generate random VNC password
+          VNC_PASS=$(openssl rand -base64 12)
+          echo "$VNC_PASS" > /tmp/passwd
+          docker exec -u dev desktop bash -lc "mkdir -p ~/.vnc && echo $VNC_PASS | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd"
+
+          # Start services via systemd
+          docker exec desktop systemctl enable vncserver@:1
+          docker exec desktop systemctl enable novnc
+          docker exec desktop systemctl start vncserver@:1
+          docker exec desktop systemctl start novnc
+          docker exec desktop tailscale up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --accept-routes
+
+          echo "======================================================="
+          echo " noVNC is running on: http://localhost:6080/vnc.html"
+          echo " VNC Password: $VNC_PASS"
+          echo "======================================================="
+
+      - name: Keep session alive for 6 hours
+        run: sleep 6h
