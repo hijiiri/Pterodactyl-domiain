@@ -1,4 +1,4 @@
-name: Build noVNC LXDE
+name: Build noVNC LXDE (Debian)
 
 on:
   workflow_dispatch:
@@ -16,11 +16,11 @@ jobs:
       - name: Build noVNC LXDE image
         run: |
           cat > Dockerfile <<'EOF'
-          FROM ubuntu:22.04
+          FROM debian:bullseye
 
           ENV DEBIAN_FRONTEND=noninteractive
 
-          RUN apt-get update && apt-get -y upgrade && apt-get -y dist-upgrade && \
+          RUN apt-get update && apt-get -y upgrade && \
               apt-get install -y --no-install-recommends \
                   ca-certificates curl sudo gosu dbus dbus-x11 \
                   systemd udev \
