@@ -43,17 +43,24 @@ jobs:
           cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
           #!/bin/sh
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          mkdir -p $XDG_RUNTIME_DIR
-          chmod 700 $XDG_RUNTIME_DIR
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
 
-          # Start dbus and systemd user session
-          if ! systemctl --user show-environment >/dev/null 2>&1; then
-            /usr/bin/systemd --user &
-            sleep 2
+          # Start a dbus session bus if not running
+          if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+            eval $(dbus-launch --sh-syntax)
+            export DBUS_SESSION_BUS_ADDRESS
+            export DBUS_SESSION_BUS_PID
           fi
 
-          # Ensure DBus is running
-          eval $(dbus-launch --sh-syntax)
+          # Fake a login session so apps stop complaining
+          export XDG_SESSION_TYPE=x11
+          export XDG_CURRENT_DESKTOP=lxde
+          export XDG_SESSION_CLASS=user
+          export XDG_SEAT=seat0
+
+          # Ensure environment is exported for child processes
+          systemctl --user import-environment DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS || true
 
           # Start LXDE
           exec startlxde
