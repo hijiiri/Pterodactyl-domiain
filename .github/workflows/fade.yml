@@ -59,11 +59,8 @@ jobs:
           export XDG_SESSION_CLASS=user
           export XDG_SEAT=seat0
 
-          # Ensure environment is exported for child processes
-          systemctl --user import-environment DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS || true
-
-          # Start LXDE
-          exec startlxde
+          # Start LXDE inside dbus-run-session
+          exec dbus-run-session startlxde
           EOF
           sudo chmod +x /home/fade/.vnc/xstartup
           sudo chown -R fade:fade /home/fade/.vnc
