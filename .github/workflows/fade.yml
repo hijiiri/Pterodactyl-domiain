@@ -37,8 +37,8 @@ jobs:
           RUN useradd -m -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
           # systemd service for VNC
-          RUN mkdir -p /etc/systemd/system
-          RUN bash -lc 'cat > /etc/systemd/system/vncserver@.service << EOL
+          RUN mkdir -p /etc/systemd/system && \
+              bash -c "cat > /etc/systemd/system/vncserver@.service <<'EOL'
           [Unit]
           Description=Start TigerVNC server at %i
           After=syslog.target network.target
@@ -54,10 +54,10 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          EOL'
+          EOL"
 
           # systemd service for noVNC
-          RUN bash -lc 'cat > /etc/systemd/system/novnc.service << EOL
+          RUN bash -c "cat > /etc/systemd/system/novnc.service <<'EOL'
           [Unit]
           Description=noVNC server
           After=network.target
@@ -69,8 +69,7 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          EOL'
-
+          EOL"
           EOF
 
           docker build -t novnc-lxde:latest .
@@ -91,16 +90,17 @@ jobs:
       - name: Wait for services
         run: |
           timeout 60s bash -lc 'until docker exec desktop systemctl is-system-running --wait; do sleep 2; done' || true
-          docker exec desktop systemctl status dbus systemd-logind vncserver@:1 novnc tailscaled || true
+          docker exec desktop systemctl status dbus systemd-logind || true
 
       - name: Configure VNC password and geometry
         run: |
           PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c12)
           echo "$PASS" > vnc-password.txt
-          docker exec -u dev desktop bash -lc "printf '%s\\n%s\\nno\\n' $PASS $PASS | vncpasswd"
+          docker exec -u dev desktop bash -lc "printf '%s\n%s\nno\n' $PASS $PASS | vncpasswd"
           sed -i "s/1280x800/${{ github.event.inputs.geometry }}/" /etc/systemd/system/vncserver@.service
           docker exec desktop systemctl daemon-reload
           docker exec desktop systemctl restart vncserver@:1
+          docker exec desktop systemctl restart novnc
 
       - name: Start Tailscale
         run: |
