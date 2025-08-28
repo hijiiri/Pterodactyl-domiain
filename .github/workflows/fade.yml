@@ -1,4 +1,4 @@
-name: novnc-lxde-tailscale
+name: Build noVNC LXDE with Tailscale
 
 on:
   workflow_dispatch:
@@ -8,19 +8,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Create Dockerfile
         run: |
           cat > Dockerfile <<'EOF'
           FROM debian:bookworm
+
           ENV DEBIAN_FRONTEND=noninteractive
 
           # Add Tailscale repo
-          RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.gpg \
+          RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
               | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null && \
-              curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.list \
+              curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list \
               | tee /etc/apt/sources.list.d/tailscale.list && \
               apt-get update && apt-get -y upgrade && \
               apt-get install -y --no-install-recommends \
@@ -38,7 +39,8 @@ jobs:
           RUN useradd -m -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
           # VNC systemd service
-          RUN bash -c "cat > /etc/systemd/system/vncserver@.service <<'EOL'
+          RUN mkdir -p /etc/systemd/system && \
+              cat <<'EOL' > /etc/systemd/system/vncserver@.service
           [Unit]
           Description=Start TigerVNC server at %i
           After=syslog.target network.target
@@ -54,10 +56,10 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          EOL"
+          EOL
 
           # noVNC systemd service
-          RUN bash -c "cat > /etc/systemd/system/novnc.service <<'EOL'
+          RUN cat <<'EOL' > /etc/systemd/system/novnc.service
           [Unit]
           Description=noVNC server
           After=network.target
@@ -69,37 +71,8 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          EOL"
+          EOL
           EOF
 
       - name: Build Docker image
         run: docker build -t novnc-lxde:latest .
-
-      - name: Run container with Tailscale + systemd
-        env:
-          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
-        run: |
-          docker run -d --privileged --name novnc \
-            --tmpfs /run --tmpfs /tmp \
-            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            -e TAILSCALE_AUTHKEY=$TAILSCALE_AUTHKEY \
-            novnc-lxde:latest /sbin/init
-
-          # Start tailscaled inside
-          docker exec -d novnc tailscaled
-          sleep 5
-          docker exec novnc tailscale up --authkey=$TAILSCALE_AUTHKEY --hostname=novnc-lxde
-
-          # Enable services
-          docker exec novnc systemctl enable vncserver@:1
-          docker exec novnc systemctl enable novnc
-          docker exec novnc systemctl start vncserver@:1
-          docker exec novnc systemctl start novnc
-
-          # Get Tailscale IP
-          TS_IP=$(docker exec novnc tailscale ip -4 | head -n1)
-
-          echo "---------------------------------------"
-          echo "✅ Access your desktop via noVNC:"
-          echo "🔗 http://$TS_IP:6080"
-          echo "---------------------------------------"
