@@ -1,88 +1,164 @@
-name: fade
+name: noVNC Firefox LXDE desktop (systemd + Tailscale)
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
   workflow_dispatch:
+    inputs:
+      geometry:
+        description: "VNC geometry (resolution)"
+        required: false
+        default: "1280x800"
 
 jobs:
-  vps-session:
+  desktop:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hours
-
-    env:
-      DEBIAN_FRONTEND: noninteractive
-
+    timeout-minutes: 360
     steps:
-      - name: System update
+      - name: Checkout (optional)
+        uses: actions/checkout@v4
+
+      - name: Build systemd desktop image (Ubuntu 22.04)
         run: |
-          sudo apt-get update
+          set -euxo pipefail
+          cat > Dockerfile <<'EOF'
+          FROM ubuntu:22.04
 
-      - name: Install desktop + noVNC
-        run: |
-          sudo apt-get install -y --no-install-recommends \
-              lxde dbus-x11 \
-              tigervnc-standalone-server tigervnc-common \
-              novnc python3-websockify \
-              software-properties-common wget \
-              xdg-desktop-portal xdg-desktop-portal-gtk systemd firefox
+          ENV DEBIAN_FRONTEND=noninteractive
 
-      - name: Install Tailscale
-        run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
+          SHELL ["/bin/bash", "-lc"]
 
-      - name: Add user
-        run: |
-          sudo useradd -m fade
-          echo "fade:fade" | sudo chpasswd
-          sudo usermod -aG sudo fade
+          # Upgrade system first
+          RUN apt-get update && \
+              apt-get -y upgrade --no-install-recommends && \
+              apt-get -y dist-upgrade --no-install-recommends && \
+              apt-get clean && rm -rf /var/lib/apt/lists/*
 
-      - name: Configure systemd user session + VNC xstartup
-        run: |
-          sudo mkdir -p /home/fade/.vnc
-          cat <<'EOF' | sudo tee /home/fade/.vnc/xstartup
-          #!/bin/sh
-          export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          mkdir -p "$XDG_RUNTIME_DIR"
-          chmod 700 "$XDG_RUNTIME_DIR"
+          # Base packages and systemd bits
+          RUN apt-get update && \
+              apt-get install -y --no-install-recommends \
+                ca-certificates curl sudo gosu dbus dbus-x11 \
+                systemd systemd-sysv udev \
+                xauth x11-xserver-utils xterm \
+                lxde-core openbox lightdm-gtk-greeter \
+                tigervnc-standalone-server tigervnc-common \
+                novnc websockify supervisor \
+                software-properties-common gpg-agent \
+                tailscale iproute2 firefox && \
+              rm -rf /var/lib/apt/lists/*
 
-          eval $(dbus-launch --sh-syntax)
-          export DBUS_SESSION_BUS_ADDRESS
-          export DBUS_SESSION_BUS_PID
+          # Create an unprivileged desktop user
+          RUN useradd -m -s /bin/bash dev && \
+              usermod -aG sudo dev && \
+              echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev && \
+              mkdir -p /home/dev/.config /home/dev/.vnc && \
+              chown -R dev:dev /home/dev
 
-          export XDG_SESSION_TYPE=x11
-          export XDG_CURRENT_DESKTOP=lxde
-          export XDG_SESSION_CLASS=user
-          export XDG_SEAT=seat0
+          # Minimal LXDE session
+          RUN echo 'lxsession -s LXDE -e LXDE' > /home/dev/.xsession && \
+              chown dev:dev /home/dev/.xsession
 
-          systemctl --user import-environment DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
+          # Placeholder VNC password (will be overridden at runtime)
+          RUN printf "changeme\nchangeme\nno\n" | su - dev -c vncpasswd
 
-          exec startlxde
+          # Systemd services: VNC and noVNC
+          RUN printf '%s\n' \
+            '[Unit]' \
+            'Description=TigerVNC server for display %i' \
+            'After=network.target dbus.service systemd-logind.service' \
+            '' \
+            '[Service]' \
+            'User=dev' \
+            'PAMName=login' \
+            'Type=forking' \
+            'Environment=DISPLAY=:%i' \
+            'ExecStartPre=/bin/sh -lc "install -d -o dev -g dev /home/dev/.vnc && touch /home/dev/.Xresources"' \
+            'ExecStart=/usr/bin/vncserver :%i -geometry 1280x800 -localhost' \
+            'ExecStop=/usr/bin/vncserver -kill :%i' \
+            'Restart=on-failure' \
+            '' \
+            '[Install]' \
+            'WantedBy=multi-user.target' \
+            > /etc/systemd/system/vncserver@.service && \
+          ln -s /usr/share/novnc /opt/novnc && \
+          printf '%s\n' \
+            '[Unit]' \
+            'Description=noVNC proxy on :6080 -> 5901' \
+            'After=network.target vncserver@1.service' \
+            '' \
+            '[Service]' \
+            'Type=simple' \
+            'ExecStart=/usr/bin/websockify --web=/opt/novnc 6080 localhost:5901' \
+            'Restart=on-failure' \
+            '' \
+            '[Install]' \
+            'WantedBy=multi-user.target' \
+            > /etc/systemd/system/novnc.service
+
+          # Enable DBus + logind + VNC + noVNC + Tailscale
+          RUN systemctl enable dbus systemd-logind vncserver@1 novnc tailscaled
+
+          EXPOSE 5901 6080
+          VOLUME [ "/sys/fs/cgroup" ]
+
+          # systemd as PID 1
+          CMD ["/sbin/init"]
           EOF
-          sudo chmod +x /home/fade/.vnc/xstartup
-          sudo chown -R fade:fade /home/fade/.vnc
 
-      - name: Set VNC password
-        run: |
-          sudo -u fade HOME=/home/fade mkdir -p /home/fade/.vnc
-          echo "fade" | vncpasswd -f | sudo -u fade HOME=/home/fade tee /home/fade/.vnc/passwd > /dev/null
-          sudo chmod 600 /home/fade/.vnc/passwd
+          docker build -t novnc-lxde:latest .
 
-      - name: Start VNC backend
+      - name: Run container with systemd (privileged)
         run: |
-          sudo -u fade HOME=/home/fade vncserver -geometry 1280x800 -depth 24 :1
-          echo "✅ VNC server started on :1 (port 5901)"
+          set -euxo pipefail
+          docker run -d \
+            --name desktop \
+            --privileged \
+            --cgroupns=host \
+            --tmpfs /run \
+            --tmpfs /run/lock \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -e GEOMETRY="${{ github.event.inputs.geometry }}" \
+            -e TAILSCALE_AUTHKEY="${{ secrets.TAILSCALE_AUTHKEY }}" \
+            novnc-lxde:latest
 
-      - name: Start Tailscale
+      - name: Wait for systemd and services
         run: |
-          sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
+          set -euxo pipefail
+          timeout 60s bash -lc 'until docker exec desktop systemctl is-system-running --wait; do sleep 2; done' || true
+          docker exec desktop systemctl status dbus systemd-logind vncserver@1 novnc tailscaled --no-pager
+
+      - name: Configure random VNC password and geometry
+        run: |
+          PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c12)
+          echo "$PASS" > vnc-password.txt
+          docker exec -u dev desktop bash -lc "printf '%s\n%s\nno\n' $PASS $PASS | vncpasswd"
+          docker cp vnc-password.txt ./vnc-password.txt
+          docker exec desktop bash -lc "sed -i 's/1280x800/${{ github.event.inputs.geometry }}/' /etc/systemd/system/vncserver@.service"
+          docker exec desktop systemctl daemon-reload
+          docker exec desktop systemctl restart vncserver@1
+
+      - name: Start and log into Tailscale
+        run: |
+          docker exec desktop tailscaled --cleanup || true
+          docker exec -d desktop tailscaled
           sleep 5
-          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname fade
+          docker exec desktop tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname github-novnc
+          docker exec desktop tailscale ip -4 > tailscale-ip.txt
+          docker cp desktop:tailscale-ip.txt ./tailscale-ip.txt
 
-      - name: Start noVNC
+      - name: Show connection details
         run: |
-          sudo -u fade HOME=/home/fade websockify --web=/usr/share/novnc/ --wrap-mode=ignore 0.0.0.0:6080 localhost:5901 &
-          echo "🌐 noVNC running at http://$(tailscale ip -4):6080/vnc.html"
+          TS_IP=$(cat tailscale-ip.txt)
+          VNC_PASS=$(cat vnc-password.txt)
+          echo "noVNC is running: http://$TS_IP:6080/vnc.html"
+          echo "Your VNC password: $VNC_PASS"
 
-      - name: Keep alive
+      - name: Add run summary link
+        run: |
+          TS_IP=$(cat tailscale-ip.txt)
+          VNC_PASS=$(cat vnc-password.txt)
+          echo "### Access Desktop" >> $GITHUB_STEP_SUMMARY
+          echo "[Open noVNC](http://$TS_IP:6080/vnc.html)" >> $GITHUB_STEP_SUMMARY
+          echo "**VNC Password:** $VNC_PASS" >> $GITHUB_STEP_SUMMARY
+          echo "Tailscale IP: $TS_IP" >> $GITHUB_STEP_SUMMARY
+
+      - name: Keep session alive for 6 hours
         run: sleep 21600
