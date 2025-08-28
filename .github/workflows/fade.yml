@@ -11,27 +11,92 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Create Dockerfile
+        run: |
+          cat > Dockerfile <<'EOF'
+          FROM debian:bookworm
+          ENV DEBIAN_FRONTEND=noninteractive
+
+          # Add Tailscale repo
+          RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.gpg \
+              | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null && \
+              curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.list \
+              | tee /etc/apt/sources.list.d/tailscale.list && \
+              apt-get update && apt-get -y upgrade && \
+              apt-get install -y --no-install-recommends \
+                  ca-certificates curl sudo gosu \
+                  systemd udev dbus dbus-x11 \
+                  xauth x11-xserver-utils xterm \
+                  lxde-core openbox \
+                  tigervnc-standalone-server tigervnc-common \
+                  novnc websockify supervisor \
+                  software-properties-common gpg-agent \
+                  iproute2 tailscale firefox-esr && \
+              rm -rf /var/lib/apt/lists/*
+
+          # Create user
+          RUN useradd -m -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+          # VNC systemd service
+          RUN bash -c "cat > /etc/systemd/system/vncserver@.service <<'EOL'
+          [Unit]
+          Description=Start TigerVNC server at %i
+          After=syslog.target network.target
+
+          [Service]
+          Type=forking
+          User=dev
+          PAMName=login
+          PIDFile=/home/dev/.vnc/%H%i.pid
+          ExecStartPre=-/usr/bin/vncserver -kill %i > /dev/null 2>&1
+          ExecStart=/usr/bin/vncserver %i -geometry 1280x800 -depth 24
+          ExecStop=/usr/bin/vncserver -kill %i
+
+          [Install]
+          WantedBy=multi-user.target
+          EOL"
+
+          # noVNC systemd service
+          RUN bash -c "cat > /etc/systemd/system/novnc.service <<'EOL'
+          [Unit]
+          Description=noVNC server
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=dev
+          ExecStart=/usr/bin/websockify --web=/usr/share/novnc/ 6080 localhost:5901
+
+          [Install]
+          WantedBy=multi-user.target
+          EOL"
+          EOF
+
       - name: Build Docker image
         run: docker build -t novnc-lxde:latest .
 
-      - name: Run container with Tailscale + noVNC
+      - name: Run container with Tailscale + systemd
         env:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
-          # Start container
           docker run -d --privileged --name novnc \
             --tmpfs /run --tmpfs /tmp \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
             -e TAILSCALE_AUTHKEY=$TAILSCALE_AUTHKEY \
-            novnc-lxde:latest
+            novnc-lxde:latest /sbin/init
 
-          # Start tailscaled
+          # Start tailscaled inside
           docker exec -d novnc tailscaled
           sleep 5
-
-          # Bring Tailscale up
           docker exec novnc tailscale up --authkey=$TAILSCALE_AUTHKEY --hostname=novnc-lxde
 
-          # Grab the IPv4 address from Tailscale
+          # Enable services
+          docker exec novnc systemctl enable vncserver@:1
+          docker exec novnc systemctl enable novnc
+          docker exec novnc systemctl start vncserver@:1
+          docker exec novnc systemctl start novnc
+
+          # Get Tailscale IP
           TS_IP=$(docker exec novnc tailscale ip -4 | head -n1)
 
           echo "---------------------------------------"
