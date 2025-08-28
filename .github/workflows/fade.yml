@@ -125,14 +125,6 @@ jobs:
           echo "🔑 Password: $VNC_PASS"
           echo "===================================================="
 
-          {
-            echo "## 🔗 Remote Desktop Access"
-            echo
-            echo "- 🌐 **noVNC (browser):** [http://$TS_IP:6080/vnc.html](http://$TS_IP:6080/vnc.html)"
-            echo "- 🖥 **VNC client:** \`$TS_IP:5901\`"
-            echo "- 🔑 **Password:** \`$VNC_PASS\`"
-          } >> $GITHUB_STEP_SUMMARY
-
           docker exec sysd loginctl || true
 
       - name: Keep session alive (6h)
