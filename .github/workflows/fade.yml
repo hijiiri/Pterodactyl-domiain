@@ -46,7 +46,7 @@ jobs:
           echo "::add-mask::$VNC_PASS"
           mkdir -p "$HOME/.vnc"
           x11vnc -storepasswd "$VNC_PASS" "$HOME/.vnc/passwd"
-          echo "pass=$VNC_PASS" >> $GITHUB_OUTPUT
+          echo "pass=$VNC_PASS" >> "$GITHUB_OUTPUT"
 
       - name: Start Xvfb + fluxbox
         run: |
