@@ -67,32 +67,33 @@ jobs:
             # VNC systemd service
             cat >/etc/systemd/system/vncserver@.service <<EOF
             [Unit]
-            Description=TigerVNC per-user server for display %%i
+            Description=TigerVNC per-user server for display %i
             After=network.target
-
+            
             [Service]
             Type=forking
             User=dev
             PAMName=login
-            PIDFile=/home/dev/.vnc/%H:%%i.pid
-            ExecStart=/usr/bin/vncserver :%%i -localhost no -fg -geometry 1280x800 -SecurityTypes VncAuth
-            ExecStop=/usr/bin/vncserver -kill :%%i
-
+            PIDFile=/home/dev/.vnc/%H:%i.pid
+            ExecStart=/usr/bin/vncserver :%i -localhost no -geometry 1280x800 -SecurityTypes VncAuth
+            ExecStop=/usr/bin/vncserver -kill :%i
+            Restart=on-failure
+            
             [Install]
             WantedBy=multi-user.target
             EOF
-
+            
             # noVNC systemd service
             cat >/etc/systemd/system/novnc.service <<EOF
             [Unit]
             Description=noVNC proxy on :6080 to VNC :1
             After=network.target vncserver@1.service
-
+            
             [Service]
             Type=simple
             ExecStart=/usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 0.0.0.0:6080
             Restart=always
-
+            
             [Install]
             WantedBy=multi-user.target
             EOF
@@ -100,7 +101,7 @@ jobs:
             systemctl daemon-reload
             systemctl enable --now vncserver@1.service
             systemctl enable --now novnc.service
-          '
+            '
 
       - name: Tailscale up (IPv4 only)
         env:
