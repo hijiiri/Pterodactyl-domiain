@@ -37,7 +37,8 @@ jobs:
             apt-get install -y -qq \
               systemd systemd-sysv dbus dbus-user-session \
               sudo curl ca-certificates gnupg openssl \
-              tigervnc-standalone-server novnc websockify \
+              tigervnc-standalone-server tigervnc-common \
+              novnc websockify \
               xfce4 xfce4-terminal thunar \
               iproute2 iputils-ping
             apt-get clean
