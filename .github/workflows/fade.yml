@@ -1,27 +1,23 @@
-name: noVNC-LXDE Desktop
+name: noVNC LXDE with Tailscale
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-run:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # 6 hours max
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build systemd-ready LXDE image
+      - name: Write Dockerfile
         run: |
           cat > Dockerfile <<'EOF'
           FROM debian:bullseye
-
+          
           ENV DEBIAN_FRONTEND=noninteractive
-
+          
           # Add Tailscale repo
           RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bullseye.gpg \
               | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null && \
@@ -38,74 +34,96 @@ jobs:
                   software-properties-common gpg-agent \
                   iproute2 tailscale firefox-esr && \
               rm -rf /var/lib/apt/lists/*
-
+          
           # Create user
           RUN useradd -m -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
+          
           # Systemd service: VNC
-          RUN mkdir -p /etc/systemd/system && \
-              bash -c "cat > /etc/systemd/system/vncserver@.service <<'EOL'
+          RUN cat > /etc/systemd/system/vncserver@.service <<'EOL'
           [Unit]
           Description=Start TigerVNC server at %i
           After=syslog.target network.target
-
+          
           [Service]
           Type=forking
           User=dev
           PAMName=login
           PIDFile=/home/dev/.vnc/%H%i.pid
           ExecStartPre=-/usr/bin/vncserver -kill %i > /dev/null 2>&1
-          ExecStart=/usr/bin/vncserver %i -geometry 1280x800 -depth 24
+          ExecStart=/usr/bin/vncserver %i -geometry 1280x800 -depth 24 -SecurityTypes VNC
           ExecStop=/usr/bin/vncserver -kill %i
-
+          
           [Install]
           WantedBy=multi-user.target
-          EOL"
-
+          EOL
+          
           # Systemd service: noVNC
-          RUN bash -c "cat > /etc/systemd/system/novnc.service <<'EOL'
+          RUN cat > /etc/systemd/system/novnc.service <<'EOL'
           [Unit]
           Description=noVNC server
           After=network.target
-
+          
           [Service]
           Type=simple
           User=dev
           ExecStart=/usr/bin/websockify --web=/usr/share/novnc/ 6080 localhost:5901
-
+          
           [Install]
           WantedBy=multi-user.target
-          EOL"
+          EOL
+          
+          # Systemd service: Tailscale
+          RUN cat > /etc/systemd/system/tailscaled.service <<'EOL'
+          [Unit]
+          Description=Tailscale node agent
+          After=network.target
+          
+          [Service]
+          ExecStart=/usr/sbin/tailscaled
+          Restart=on-failure
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOL
+          
+          CMD ["/sbin/init"]
           EOF
 
-          docker build -t novnc-lxde:latest .
+      - name: Build Docker Image
+        run: docker build -t novnc-lxde:latest .
 
-      - name: Run container with systemd
+      - name: Run Container (systemd enabled)
         run: |
-          docker run -d --privileged --name desktop \
-            -e TAILSCALE_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }} \
-            --tmpfs /run --tmpfs /run/lock \
-            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            novnc-lxde:latest /sbin/init
+          docker run -d --name novnc \
+            --privileged \
+            novnc-lxde:latest
 
-      - name: Configure Tailscale + Start Services
+      - name: Generate Random VNC Password
+        id: vncpass
         run: |
-          # Generate random VNC password
-          VNC_PASS=$(openssl rand -base64 12)
-          echo "$VNC_PASS" > /tmp/passwd
-          docker exec -u dev desktop bash -lc "mkdir -p ~/.vnc && echo $VNC_PASS | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd"
+          PASS=$(openssl rand -base64 12)
+          echo "$PASS" > vncpass.txt
+          docker exec -u dev novnc bash -c "mkdir -p /home/dev/.vnc && echo $PASS | vncpasswd -f > /home/dev/.vnc/passwd && chmod 600 /home/dev/.vnc/passwd"
+          echo "password=$PASS" >> $GITHUB_OUTPUT
 
-          # Start services via systemd
-          docker exec desktop systemctl enable vncserver@:1
-          docker exec desktop systemctl enable novnc
-          docker exec desktop systemctl start vncserver@:1
-          docker exec desktop systemctl start novnc
-          docker exec desktop tailscale up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --accept-routes
+      - name: Start Services
+        run: |
+          docker exec novnc systemctl enable tailscaled
+          docker exec novnc systemctl start tailscaled
+          docker exec novnc systemctl enable vncserver@:1
+          docker exec novnc systemctl start vncserver@:1
+          docker exec novnc systemctl enable novnc
+          docker exec novnc systemctl start novnc
 
-          echo "======================================================="
-          echo " noVNC is running on: http://localhost:6080/vnc.html"
-          echo " VNC Password: $VNC_PASS"
-          echo "======================================================="
+      - name: Authenticate Tailscale
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+        run: |
+          docker exec novnc tailscale up --authkey=${TAILSCALE_AUTHKEY} --hostname=novnc-github --ssh
 
-      - name: Keep session alive for 6 hours
-        run: sleep 6h
+      - name: Show Access Info
+        run: |
+          IP=$(docker exec novnc tailscale ip -4 | head -n1)
+          echo "➡️ Tailscale IP: $IP"
+          echo "➡️ noVNC URL: http://$IP:6080/vnc.html"
+          echo "➡️ VNC Password: ${{ steps.vncpass.outputs.password }}"
