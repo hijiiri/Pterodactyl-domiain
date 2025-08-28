@@ -1,4 +1,4 @@
-name: noVNC Firefox LXDE desktop (systemd + Tailscale)
+name: Ubuntu Desktop with noVNC + Tailscale
 
 on:
   workflow_dispatch:
@@ -9,105 +9,74 @@ on:
         default: "1280x800"
 
 jobs:
-  desktop:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    steps:
-      - name: Checkout (optional)
-        uses: actions/checkout@v4
 
-      - name: Build systemd desktop image (Ubuntu 22.04)
+    steps:
+      - name: Build systemd desktop image
         run: |
-          set -euxo pipefail
           cat > Dockerfile <<'EOF'
           FROM ubuntu:22.04
 
           ENV DEBIAN_FRONTEND=noninteractive
 
-          SHELL ["/bin/bash", "-lc"]
-
-          # Upgrade system first
-          RUN apt-get update && \
-              apt-get -y upgrade --no-install-recommends && \
-              apt-get -y dist-upgrade --no-install-recommends && \
-              apt-get clean && rm -rf /var/lib/apt/lists/*
-
-          # Base packages and systemd bits
-          RUN apt-get update && \
+          RUN apt-get update && apt-get -y upgrade && apt-get -y dist-upgrade && \
               apt-get install -y --no-install-recommends \
-                ca-certificates curl sudo gosu dbus dbus-x11 \
-                systemd systemd-sysv udev \
-                xauth x11-xserver-utils xterm \
-                lxde-core openbox lightdm-gtk-greeter \
-                tigervnc-standalone-server tigervnc-common \
-                novnc websockify supervisor \
-                software-properties-common gpg-agent \
-                tailscale iproute2 firefox && \
+                  ca-certificates curl sudo gosu dbus dbus-x11 \
+                  systemd udev \
+                  xauth x11-xserver-utils xterm \
+                  lxde-core openbox lightdm-gtk-greeter \
+                  tigervnc-standalone-server tigervnc-common \
+                  novnc websockify supervisor \
+                  software-properties-common gpg-agent \
+                  tailscale iproute2 firefox-esr && \
               rm -rf /var/lib/apt/lists/*
 
-          # Create an unprivileged desktop user
-          RUN useradd -m -s /bin/bash dev && \
-              usermod -aG sudo dev && \
-              echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev && \
-              mkdir -p /home/dev/.config /home/dev/.vnc && \
-              chown -R dev:dev /home/dev
+          # Create user
+          RUN useradd -m -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-          # Minimal LXDE session
-          RUN echo 'lxsession -s LXDE -e LXDE' > /home/dev/.xsession && \
-              chown dev:dev /home/dev/.xsession
+          # systemd service for VNC
+          RUN mkdir -p /etc/systemd/system
+          RUN bash -lc 'cat > /etc/systemd/system/vncserver@.service << EOL
+          [Unit]
+          Description=Start TigerVNC server at %i
+          After=syslog.target network.target
 
-          # Placeholder VNC password (will be overridden at runtime)
-          RUN printf "changeme\nchangeme\nno\n" | su - dev -c vncpasswd
+          [Service]
+          Type=forking
+          User=dev
+          PAMName=login
+          PIDFile=/home/dev/.vnc/%H%i.pid
+          ExecStartPre=-/usr/bin/vncserver -kill %i > /dev/null 2>&1
+          ExecStart=/usr/bin/vncserver %i -geometry 1280x800 -depth 24
+          ExecStop=/usr/bin/vncserver -kill %i
 
-          # Systemd services: VNC and noVNC
-          RUN printf '%s\n' \
-            '[Unit]' \
-            'Description=TigerVNC server for display %i' \
-            'After=network.target dbus.service systemd-logind.service' \
-            '' \
-            '[Service]' \
-            'User=dev' \
-            'PAMName=login' \
-            'Type=forking' \
-            'Environment=DISPLAY=:%i' \
-            'ExecStartPre=/bin/sh -lc "install -d -o dev -g dev /home/dev/.vnc && touch /home/dev/.Xresources"' \
-            'ExecStart=/usr/bin/vncserver :%i -geometry 1280x800 -localhost' \
-            'ExecStop=/usr/bin/vncserver -kill :%i' \
-            'Restart=on-failure' \
-            '' \
-            '[Install]' \
-            'WantedBy=multi-user.target' \
-            > /etc/systemd/system/vncserver@.service && \
-          ln -s /usr/share/novnc /opt/novnc && \
-          printf '%s\n' \
-            '[Unit]' \
-            'Description=noVNC proxy on :6080 -> 5901' \
-            'After=network.target vncserver@1.service' \
-            '' \
-            '[Service]' \
-            'Type=simple' \
-            'ExecStart=/usr/bin/websockify --web=/opt/novnc 6080 localhost:5901' \
-            'Restart=on-failure' \
-            '' \
-            '[Install]' \
-            'WantedBy=multi-user.target' \
-            > /etc/systemd/system/novnc.service
+          [Install]
+          WantedBy=multi-user.target
+          EOL'
 
-          # Enable DBus + logind + VNC + noVNC + Tailscale
-          RUN systemctl enable dbus systemd-logind vncserver@1 novnc tailscaled
+          # systemd service for noVNC
+          RUN bash -lc 'cat > /etc/systemd/system/novnc.service << EOL
+          [Unit]
+          Description=noVNC server
+          After=network.target
 
-          EXPOSE 5901 6080
-          VOLUME [ "/sys/fs/cgroup" ]
+          [Service]
+          Type=simple
+          User=dev
+          ExecStart=/usr/bin/websockify --web=/usr/share/novnc/ 6080 localhost:5901
 
-          # systemd as PID 1
-          CMD ["/sbin/init"]
+          [Install]
+          WantedBy=multi-user.target
+          EOL'
+
           EOF
 
           docker build -t novnc-lxde:latest .
 
-      - name: Run container with systemd (privileged)
+      - name: Run container
         run: |
-          set -euxo pipefail
           docker run -d \
             --name desktop \
             --privileged \
@@ -119,46 +88,40 @@ jobs:
             -e TAILSCALE_AUTHKEY="${{ secrets.TAILSCALE_AUTHKEY }}" \
             novnc-lxde:latest
 
-      - name: Wait for systemd and services
+      - name: Wait for services
         run: |
-          set -euxo pipefail
           timeout 60s bash -lc 'until docker exec desktop systemctl is-system-running --wait; do sleep 2; done' || true
-          docker exec desktop systemctl status dbus systemd-logind vncserver@1 novnc tailscaled --no-pager
+          docker exec desktop systemctl status dbus systemd-logind vncserver@:1 novnc tailscaled || true
 
-      - name: Configure random VNC password and geometry
+      - name: Configure VNC password and geometry
         run: |
           PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c12)
           echo "$PASS" > vnc-password.txt
-          docker exec -u dev desktop bash -lc "printf '%s\n%s\nno\n' $PASS $PASS | vncpasswd"
-          docker cp vnc-password.txt ./vnc-password.txt
-          docker exec desktop bash -lc "sed -i 's/1280x800/${{ github.event.inputs.geometry }}/' /etc/systemd/system/vncserver@.service"
+          docker exec -u dev desktop bash -lc "printf '%s\\n%s\\nno\\n' $PASS $PASS | vncpasswd"
+          sed -i "s/1280x800/${{ github.event.inputs.geometry }}/" /etc/systemd/system/vncserver@.service
           docker exec desktop systemctl daemon-reload
-          docker exec desktop systemctl restart vncserver@1
+          docker exec desktop systemctl restart vncserver@:1
 
-      - name: Start and log into Tailscale
+      - name: Start Tailscale
         run: |
-          docker exec desktop tailscaled --cleanup || true
           docker exec -d desktop tailscaled
-          sleep 5
           docker exec desktop tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname github-novnc
           docker exec desktop tailscale ip -4 > tailscale-ip.txt
-          docker cp desktop:tailscale-ip.txt ./tailscale-ip.txt
 
-      - name: Show connection details
+      - name: Show connection info
         run: |
           TS_IP=$(cat tailscale-ip.txt)
           VNC_PASS=$(cat vnc-password.txt)
           echo "noVNC is running: http://$TS_IP:6080/vnc.html"
           echo "Your VNC password: $VNC_PASS"
 
-      - name: Add run summary link
+      - name: Add run summary
         run: |
           TS_IP=$(cat tailscale-ip.txt)
           VNC_PASS=$(cat vnc-password.txt)
           echo "### Access Desktop" >> $GITHUB_STEP_SUMMARY
           echo "[Open noVNC](http://$TS_IP:6080/vnc.html)" >> $GITHUB_STEP_SUMMARY
           echo "**VNC Password:** $VNC_PASS" >> $GITHUB_STEP_SUMMARY
-          echo "Tailscale IP: $TS_IP" >> $GITHUB_STEP_SUMMARY
 
-      - name: Keep session alive for 6 hours
+      - name: Keep alive 6 hours
         run: sleep 21600
