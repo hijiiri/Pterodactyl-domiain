@@ -1,78 +1,82 @@
-name: Build noVNC LXDE with Tailscale
+name: noVNC over Tailscale (6h)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  novnc:
     runs-on: ubuntu-latest
+    timeout-minutes: 360   # max 6h
+    env:
+      DEBIAN_FRONTEND: noninteractive
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Create Dockerfile
+      - name: Show runner info
         run: |
-          cat > Dockerfile <<'EOF'
-          FROM debian:bookworm
+          echo "Runner: $(uname -a)"
+          echo "Date: $(date -Is)"
 
-          ENV DEBIAN_FRONTEND=noninteractive
+      - name: Fast apt install
+        run: |
+          sudo bash -euxo pipefail -c '
+            apt-get -o Acquire::Retries=3 -o Acquire::http::No-Cache=true update -y -qq
+            apt-get install -y -qq --no-install-recommends \
+              xvfb x11vnc fluxbox novnc websockify curl ca-certificates dbus jq coreutils openssl
+            apt-get clean
+          '
 
-          # Add Tailscale repo
-          RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
-              | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null && \
-              curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list \
-              | tee /etc/apt/sources.list.d/tailscale.list && \
-              apt-get update && apt-get -y upgrade && \
-              apt-get install -y --no-install-recommends \
-                  ca-certificates curl sudo gosu \
-                  systemd udev dbus dbus-x11 \
-                  xauth x11-xserver-utils xterm \
-                  lxde-core openbox \
-                  tigervnc-standalone-server tigervnc-common \
-                  novnc websockify supervisor \
-                  software-properties-common gpg-agent \
-                  iproute2 tailscale firefox-esr && \
-              rm -rf /var/lib/apt/lists/*
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
 
-          # Create user
-          RUN useradd -m -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+      - name: Start tailscaled (userspace networking only)
+        run: |
+          sudo nohup tailscaled --state=mem: --tun=userspace-networking >/tmp/tailscaled.log 2>&1 &
+          sleep 2
+          sudo tailscale up \
+            --authkey "${{ secrets.TAILSCALE_AUTHKEY }}" \
+            --hostname "gha-novnc-${{ github.run_id }}" \
+            --accept-dns=false \
+            --ssh=false
 
-          # VNC systemd service
-          RUN mkdir -p /etc/systemd/system && \
-              cat <<'EOL' > /etc/systemd/system/vncserver@.service
-          [Unit]
-          Description=Start TigerVNC server at %i
-          After=syslog.target network.target
+      - name: Generate random VNC password
+        id: vncpass
+        run: |
+          VNC_PASS="$(openssl rand -base64 24 | tr -dc "A-Za-z0-9" | head -c 14)"
+          echo "::add-mask::$VNC_PASS"
+          mkdir -p "$HOME/.vnc"
+          x11vnc -storepasswd "$VNC_PASS" "$HOME/.vnc/passwd"
+          echo "pass=$VNC_PASS" >> $GITHUB_OUTPUT
 
-          [Service]
-          Type=forking
-          User=dev
-          PAMName=login
-          PIDFile=/home/dev/.vnc/%H%i.pid
-          ExecStartPre=-/usr/bin/vncserver -kill %i > /dev/null 2>&1
-          ExecStart=/usr/bin/vncserver %i -geometry 1280x800 -depth 24
-          ExecStop=/usr/bin/vncserver -kill %i
+      - name: Start Xvfb + fluxbox
+        run: |
+          export DISPLAY=:0
+          nohup Xvfb :0 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
+          nohup fluxbox >/tmp/fluxbox.log 2>&1 &
+          sleep 2
 
-          [Install]
-          WantedBy=multi-user.target
-          EOL
+      - name: Start VNC server
+        run: |
+          export DISPLAY=:0
+          nohup x11vnc -display :0 \
+            -rfbauth "$HOME/.vnc/passwd" \
+            -forever -shared -rfbport 5900 \
+            -o /tmp/x11vnc.log >/tmp/x11vnc.out 2>&1 &
 
-          # noVNC systemd service
-          RUN cat <<'EOL' > /etc/systemd/system/novnc.service
-          [Unit]
-          Description=noVNC server
-          After=network.target
+      - name: Start noVNC (websockify proxy on :6080)
+        run: |
+          NOVNC_LAUNCH="/usr/share/novnc/utils/launch.sh"
+          test -x "$NOVNC_LAUNCH" || NOVNC_LAUNCH="/usr/share/novnc/utils/novnc_proxy"
+          nohup "$NOVNC_LAUNCH" --listen 6080 --vnc localhost:5900 >/tmp/novnc.log 2>&1 &
 
-          [Service]
-          Type=simple
-          User=dev
-          ExecStart=/usr/bin/websockify --web=/usr/share/novnc/ 6080 localhost:5901
+      - name: Get Tailscale IPv4 + print connection info
+        run: |
+          TS_IPv4="$(tailscale ip -4 | head -n1)"
+          echo "======================== Connection Details ========================"
+          echo "noVNC URL:  http://$TS_IPv4:6080/vnc.html?autoconnect=true"
+          echo "VNC Password: ${{ steps.vncpass.outputs.pass }}"
+          echo "Session will be available for ~6 hours."
+          echo "==================================================================="
 
-          [Install]
-          WantedBy=multi-user.target
-          EOL
-          EOF
-
-      - name: Build Docker image
-        run: docker build -t novnc-lxde:latest .
+      - name: Keep session alive for 6h
+        run: sleep $((6*60*60))
