@@ -23,21 +23,17 @@ jobs:
           sleep 4
           docker exec sysd bash -lc 'ps -p 1 -o comm='
 
-      - name: Configure apt defaults + install XFCE, noVNC, Tailscale
+      - name: Install XFCE, TigerVNC, noVNC, Tailscale
         run: |
           set -euxo pipefail
           docker exec sysd bash -euxo pipefail -c '
-            # Set global apt + frontend settings
-            echo "DEBIAN_FRONTEND=noninteractive" >> /etc/environment
-            echo "APT::Install-Recommends \"0\";" > /etc/apt/apt.conf.d/99norecommends
-            echo "APT::Install-Suggests \"0\";" >> /etc/apt/apt.conf.d/99norecommends
             export DEBIAN_FRONTEND=noninteractive
 
             apt-get update -qq
             apt-get install -y -qq \
               systemd systemd-sysv dbus dbus-user-session \
               sudo curl ca-certificates gnupg openssl \
-              tigervnc-standalone-server tigervnc-common \
+              tigervnc-standalone-server \
               novnc websockify \
               xfce4 xfce4-terminal thunar \
               iproute2 iputils-ping
@@ -50,10 +46,10 @@ jobs:
             usermod -aG sudo dev
             echo "dev ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/90-dev
 
-            # Generate random VNC password (12 chars, alphanumeric)
+            # Random 12-char alphanumeric VNC password
             RANDPW=$(openssl rand -base64 12 | tr -dc A-Za-z0-9 | head -c12)
             sudo -u dev mkdir -p /home/dev/.vnc
-            printf "%s\n%s\n\n" "$RANDPW" "$RANDPW" | sudo -u dev vncpasswd
+            printf "%s\n%s\n\n" "$RANDPW" "$RANDPW" | sudo -u dev /usr/bin/vncpasswd
             echo "$RANDPW" >/home/dev/.vnc/current_vnc_password
             chmod 600 /home/dev/.vnc/current_vnc_password
 
