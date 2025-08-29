@@ -83,8 +83,8 @@ jobs:
             WantedBy=multi-user.target
             EOF
             
-            # noVNC systemd service
-            cat >/etc/systemd/system/novnc.service <<EOF
+                        # noVNC systemd service
+                        cat >/etc/systemd/system/novnc.service <<EOF
             [Unit]
             Description=noVNC proxy on :6080 to VNC :1
             After=network.target vncserver@1.service
@@ -101,7 +101,7 @@ jobs:
             systemctl daemon-reload
             systemctl enable --now vncserver@1.service
             systemctl enable --now novnc.service
-            '
+          '
 
       - name: Tailscale up (IPv4 only)
         env:
