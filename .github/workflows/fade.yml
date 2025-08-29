@@ -41,7 +41,7 @@ jobs:
             rm -rf /var/lib/apt/lists/*
 
             # Create user
-            useradd -m -s /bin/bash dev
+            id -u dev >/dev/null 2>&1 || useradd -m -s /bin/bash dev
             echo "dev:dev" | chpasswd
             usermod -aG sudo dev
             echo "dev ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/90-dev
@@ -53,8 +53,14 @@ jobs:
             echo "$RANDPW" >/home/dev/.vnc/current_vnc_password
             chmod 600 /home/dev/.vnc/current_vnc_password
 
-            # XFCE startup
-            sudo -u dev bash -lc "echo -e '#!/bin/sh\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec startxfce4' > ~/.vnc/xstartup && chmod +x ~/.vnc/xstartup"
+            # XFCE startup (patched xstartup, no fallback)
+            sudo -u dev bash -lc "cat > ~/.vnc/xstartup <<'EOF'
+          #!/bin/sh
+          unset SESSION_MANAGER
+          unset DBUS_SESSION_BUS_ADDRESS
+          exec dbus-launch --exit-with-session startxfce4
+          EOF
+            chmod +x ~/.vnc/xstartup"
 
             # Install Tailscale
             curl -fsSL https://tailscale.com/install.sh | sh
@@ -67,15 +73,7 @@ jobs:
             # Start VNC server manually
             sudo -u dev vncserver :1 -localhost no -geometry 1280x800 -SecurityTypes VncAuth
           '
-      - name: Install Firefox
-        run: |
-          set -euxo pipefail
-          docker exec sysd bash -lc '
-            cd /opt
-            wget -O firefox.tar.xz 'https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US'
-            tar -xf firefox.tar.xz
-            ln -sf /opt/firefox/firefox /usr/bin/firefox
-          '
+
       - name: Tailscale up (IPv4 only)
         env:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
@@ -98,7 +96,7 @@ jobs:
           echo "🔑 Password: $(docker exec sysd cat /home/dev/.vnc/current_vnc_password)"
           echo "===================================================="
 
-          docker exec sysd loginctl
+          docker exec sysd loginctl || true
 
       - name: Launch noVNC proxy
         run: |
