@@ -60,7 +60,7 @@ jobs:
 
           echo "===================================================="
           echo "🌐 noVNC URL: http://$(tailscale ip -4):6080/vnc.html"
-          echo "🔑 Password: $(cat /home/dev/.vnc/current_vnc_password)"
+          echo "🔑 Password: $(sudo -u dev cat /home/dev/.vnc/current_vnc_password)"
           echo "===================================================="
 
       - name: Launch noVNC proxy
