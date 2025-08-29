@@ -83,8 +83,8 @@ jobs:
             WantedBy=multi-user.target
             EOF
             
-                        # noVNC systemd service
-                        cat >/etc/systemd/system/novnc.service <<EOF
+            # noVNC systemd service
+            cat >/etc/systemd/system/novnc.service <<EOF
             [Unit]
             Description=noVNC proxy on :6080 to VNC :1
             After=network.target vncserver@1.service
@@ -117,13 +117,12 @@ jobs:
               --accept-dns=true
           '
 
-          TS_IP=$(docker exec sysd tailscale ip -4 | head -n1)
-          VNC_PASS=$(docker exec sysd cat /home/dev/.vnc/current_vnc_password)
+          TS_IP=$(docker exec sysd tailscale ip -4)
 
           echo "===================================================="
           echo "🌐 noVNC URL: http://$TS_IP:6080/vnc.html"
           echo "🖥  VNC Client: $TS_IP:5901"
-          echo "🔑 Password: $VNC_PASS"
+          echo "🔑 Password: $(docker exec sysd cat /home/dev/.vnc/current_vnc_password)"
           echo "===================================================="
 
           docker exec sysd loginctl || true
