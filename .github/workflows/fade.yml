@@ -1,4 +1,4 @@
-name: novnc-tailscale-systemd
+name: novnc-tailscale-xterm
 
 on:
   workflow_dispatch:
@@ -9,102 +9,68 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: read
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
     steps:
-      - name: Start systemd container (privileged)
+      - name: Install xterm, TigerVNC, noVNC, Tailscale
         run: |
-          set -eux
-          docker pull jrei/systemd-ubuntu:22.04
-          docker run -d --name sysd \
-            --privileged \
-            --cgroupns=host \
-            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            -p 6080:6080 \
-            jrei/systemd-ubuntu:22.04
-          sleep 4
-          docker exec sysd bash -lc 'ps -p 1 -o comm='
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            tigervnc-standalone-server \
+            novnc websockify python3-websockify \
+            xterm curl openssl
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
 
-      - name: Install XFCE, TigerVNC, noVNC, Tailscale
-        run: |
-          set -euxo pipefail
-          docker exec sysd bash -euxo pipefail -c '
-            export DEBIAN_FRONTEND=noninteractive
+          # Create user
+          sudo useradd -m -s /bin/bash dev
+          echo "dev:dev" | sudo chpasswd
 
-            apt-get update -qq
-            apt-get install -y -qq \
-              systemd systemd-sysv dbus dbus-user-session \
-              sudo curl ca-certificates gnupg openssl \
-              tigervnc-standalone-server \
-              novnc websockify python3-websockify \
-              xfce4 xfce4-terminal thunar \
-              iproute2 iputils-ping wget
-            apt-get clean
-            rm -rf /var/lib/apt/lists/*
+          # Random VNC password
+          RANDPW=$(openssl rand -base64 12 | tr -dc A-Za-z0-9 | head -c12)
+          sudo -u dev mkdir -p /home/dev/.vnc
+          printf "%s\n%s\n\n" "$RANDPW" "$RANDPW" | sudo -u dev vncpasswd
+          echo "$RANDPW" | sudo tee /home/dev/.vnc/current_vnc_password >/dev/null
+          sudo chmod 600 /home/dev/.vnc/current_vnc_password
 
-            # Create user
-            useradd -m -s /bin/bash dev
-            echo "dev:dev" | chpasswd
-            usermod -aG sudo dev
-            echo "dev ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/90-dev
-
-            # Random 12-char alphanumeric VNC password
-            RANDPW=$(openssl rand -base64 12 | tr -dc A-Za-z0-9 | head -c12)
-            sudo -u dev mkdir -p /home/dev/.vnc
-            printf "%s\n%s\n\n" "$RANDPW" "$RANDPW" | sudo -u dev /usr/bin/vncpasswd
-            echo "$RANDPW" >/home/dev/.vnc/current_vnc_password
-            chmod 600 /home/dev/.vnc/current_vnc_password
-
-            # XFCE startup
-            sudo -u dev bash -lc "cat > ~/.vnc/xstartup <<'EOF'
+          # Minimal xstartup (just xterm)
+          sudo -u dev bash -lc "cat > ~/.vnc/xstartup <<'EOF'
           #!/bin/sh
-          unset SESSION_MANAGER
-          unset DBUS_SESSION_BUS_ADDRESS
-          exec dbus-launch --exit-with-session startxfce4
+          exec xterm
           EOF
-            chmod +x ~/.vnc/xstartup"
+          chmod +x ~/.vnc/xstartup"
 
-            # Install Tailscale
-            curl -fsSL https://tailscale.com/install.sh | sh
+          # Install Tailscale
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo systemctl enable --now tailscaled
 
-            # Enable systemd essentials
-            systemctl start dbus
-            systemctl start systemd-logind
-            systemctl enable --now tailscaled
-
-            # Start VNC server (localhost only, for noVNC)
-            sudo -u dev vncserver :1 -localhost yes -geometry 1280x800 -SecurityTypes VncAuth
-          '
+          # Start VNC (localhost only, for noVNC)
+          sudo -u dev vncserver :1 -localhost yes -geometry 1280x800 -SecurityTypes VncAuth
 
       - name: Tailscale up (IPv4 only)
-        env:
-          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
-          set -euxo pipefail
-          docker exec sysd bash -lc '
-            tailscale up \
-              --auth-key='${TAILSCALE_AUTHKEY}' \
-              --hostname=gh-xfce-$(date +%s) \
-              --ssh \
-              --accept-routes \
-              --accept-dns=true
-          '
-
-          TS_IP=$(docker exec sysd tailscale ip -4)
+          sudo tailscale up \
+            --auth-key=${{ secrets.TAILSCALE_AUTHKEY }} \
+            --hostname=gh-xterm-$(date +%s) \
+            --ssh \
+            --accept-routes \
+            --accept-dns=true
 
           echo "===================================================="
-          echo "🌐 noVNC URL: http://$TS_IP:6080/vnc.html"
-          echo "🔑 Password: $(docker exec sysd cat /home/dev/.vnc/current_vnc_password)"
+          echo "🌐 noVNC URL: http://$(tailscale ip -4):6080/vnc.html"
+          echo "🔑 Password: $(cat /home/dev/.vnc/current_vnc_password)"
           echo "===================================================="
 
       - name: Launch noVNC proxy
         run: |
-          docker exec -d sysd bash -lc '
-            /usr/share/novnc/utils/launch.sh \
-              --vnc localhost:5901 \
-              --listen 0.0.0.0:6080 \
-              --web /usr/share/novnc &
-          '
+          /usr/share/novnc/utils/launch.sh \
+            --vnc localhost:5901 \
+            --listen 0.0.0.0:6080 \
+            --web /usr/share/novnc &
 
       - name: Keep session alive (6h)
         run: |
-          echo "Keeping container alive for 6 hours..."
+          echo "Keeping alive for 6 hours..."
           sleep 360m
