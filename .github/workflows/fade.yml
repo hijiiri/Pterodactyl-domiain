@@ -113,6 +113,7 @@ jobs:
               --auth-key=${TAILSCALE_AUTHKEY} \
               --hostname=gh-xfce-$(date +%s) \
               --accept-routes \
+              --ssh \
               --accept-dns=true
           "
 
