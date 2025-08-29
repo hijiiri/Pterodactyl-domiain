@@ -41,7 +41,7 @@ jobs:
             rm -rf /var/lib/apt/lists/*
 
             # Create user
-            id -u dev >/dev/null 2>&1 || useradd -m -s /bin/bash dev
+            useradd -m -s /bin/bash dev
             echo "dev:dev" | chpasswd
             usermod -aG sudo dev
             echo "dev ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/90-dev
@@ -72,6 +72,16 @@ jobs:
 
             # Start VNC server manually
             sudo -u dev vncserver :1 -localhost no -geometry 1280x800 -SecurityTypes VncAuth
+          '
+
+      - name: Install Firefox
+        run: |
+          set -euxo pipefail
+          docker exec sysd bash -lc '
+            cd /opt
+            wget -O firefox.tar.xz https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US
+            tar -xf firefox.tar.xz
+            ln -sf /opt/firefox/firefox /usr/bin/firefox
           '
 
       - name: Tailscale up (IPv4 only)
