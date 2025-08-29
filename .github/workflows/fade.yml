@@ -34,14 +34,14 @@ jobs:
               systemd systemd-sysv dbus dbus-user-session \
               sudo curl ca-certificates gnupg openssl \
               tigervnc-standalone-server \
-              novnc websockify \
+              novnc websockify python3-websockify \
               xfce4 xfce4-terminal thunar \
               iproute2 iputils-ping
             apt-get clean
             rm -rf /var/lib/apt/lists/*
 
             # Create user
-            id -u dev >/dev/null 2>&1 || useradd -m -s /bin/bash dev
+            useradd -m -s /bin/bash dev
             echo "dev:dev" | chpasswd
             usermod -aG sudo dev
             echo "dev ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/90-dev
@@ -53,14 +53,8 @@ jobs:
             echo "$RANDPW" >/home/dev/.vnc/current_vnc_password
             chmod 600 /home/dev/.vnc/current_vnc_password
 
-            # XFCE startup (patched xstartup, no fallback)
-            sudo -u dev bash -lc "cat > ~/.vnc/xstartup <<'EOF'
-          #!/bin/sh
-          unset SESSION_MANAGER
-          unset DBUS_SESSION_BUS_ADDRESS
-          exec dbus-launch --exit-with-session startxfce4
-          EOF
-          chmod +x ~/.vnc/xstartup"
+            # XFCE startup
+            sudo -u dev bash -lc "echo -e \"#!/bin/sh\nstartxfce4 &\" > ~/.vnc/xstartup && chmod +x ~/.vnc/xstartup"
 
             # Install Tailscale
             curl -fsSL https://tailscale.com/install.sh | sh
@@ -70,22 +64,31 @@ jobs:
             systemctl start systemd-logind
             systemctl enable --now tailscaled
 
-            # Start VNC + noVNC (no systemd unit files, run directly)
+            # Start VNC server manually
             sudo -u dev vncserver :1 -localhost no -geometry 1280x800 -SecurityTypes VncAuth
-            nohup /usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 0.0.0.0:6080 >/var/log/novnc.log 2>&1 &
           '
-
+      - name: Install Firefox
+        run: |
+          set -euxo pipefail
+          docker exec sysd bash -lc '
+            cd /opt
+            wget -O firefox.tar.xz 'https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US'
+            tar -xf firefox.tar.xz
+            ln -sf /opt/firefox/firefox /usr/bin/firefox
+          ,
       - name: Tailscale up (IPv4 only)
         env:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
           set -euxo pipefail
-          docker exec sysd tailscale up \
-            --auth-key="${TAILSCALE_AUTHKEY}" \
-            --hostname=gh-xfce-$(date +%s) \
-            --ssh \
-            --accept-routes \
-            --accept-dns=true
+          docker exec sysd bash -lc '
+            tailscale up \
+              --auth-key="${TAILSCALE_AUTHKEY}" \
+              --hostname=gh-xfce-$(date +%s) \
+              --ssh \
+              --accept-routes \
+              --accept-dns=true
+          '
 
           TS_IP=$(docker exec sysd tailscale ip -4)
 
@@ -95,7 +98,16 @@ jobs:
           echo "🔑 Password: $(docker exec sysd cat /home/dev/.vnc/current_vnc_password)"
           echo "===================================================="
 
-          docker exec sysd loginctl || true
+          docker exec sysd loginctl
+
+      - name: Launch noVNC proxy
+        run: |
+          docker exec -d sysd bash -lc '
+            nohup /usr/share/novnc/utils/launch.sh \
+              --vnc localhost:5901 \
+              --listen 0.0.0.0:6080 \
+              --web /usr/share/novnc > /var/log/novnc.log 2>&1 &
+          '
 
       - name: Keep session alive (6h)
         run: |
