@@ -54,7 +54,7 @@ jobs:
             chmod 600 /home/dev/.vnc/current_vnc_password
 
             # XFCE startup
-            sudo -u dev bash -lc "echo -e \"#!/bin/sh\nstartxfce4 &\" > ~/.vnc/xstartup && chmod +x ~/.vnc/xstartup"
+            sudo -u dev bash -lc "echo -e '#!/bin/sh\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec startxfce4' > ~/.vnc/xstartup && chmod +x ~/.vnc/xstartup"
 
             # Install Tailscale
             curl -fsSL https://tailscale.com/install.sh | sh
