@@ -55,12 +55,12 @@ jobs:
 
             # XFCE startup (patched xstartup, no fallback)
             sudo -u dev bash -lc "cat > ~/.vnc/xstartup <<'EOF'
-#!/bin/sh
-unset SESSION_MANAGER
-unset DBUS_SESSION_BUS_ADDRESS
-exec dbus-launch --exit-with-session startxfce4
-EOF
-chmod +x ~/.vnc/xstartup"
+          #!/bin/sh
+          unset SESSION_MANAGER
+          unset DBUS_SESSION_BUS_ADDRESS
+          exec dbus-launch --exit-with-session startxfce4
+          EOF
+          chmod +x ~/.vnc/xstartup"
 
             # Install Tailscale
             curl -fsSL https://tailscale.com/install.sh | sh
