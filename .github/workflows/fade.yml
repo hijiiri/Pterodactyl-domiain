@@ -75,7 +75,7 @@ jobs:
             wget -O firefox.tar.xz 'https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US'
             tar -xf firefox.tar.xz
             ln -sf /opt/firefox/firefox /usr/bin/firefox
-          ,
+          '
       - name: Tailscale up (IPv4 only)
         env:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
