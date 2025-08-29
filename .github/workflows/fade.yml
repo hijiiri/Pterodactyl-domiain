@@ -108,14 +108,13 @@ jobs:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
           set -euxo pipefail
-          docker exec sysd bash -lc '
+          docker exec sysd bash -lc "
             tailscale up \
-              --auth-key="${TAILSCALE_AUTHKEY}" \
+              --auth-key=${TAILSCALE_AUTHKEY} \
               --hostname=gh-xfce-$(date +%s) \
-              --ssh \
               --accept-routes \
               --accept-dns=true
-          '
+          "
 
           TS_IP=$(docker exec sysd tailscale ip -4)
 
