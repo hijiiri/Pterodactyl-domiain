@@ -53,7 +53,7 @@ jobs:
             echo "$RANDPW" >/home/dev/.vnc/current_vnc_password
             chmod 600 /home/dev/.vnc/current_vnc_password
 
-            # XFCE startup (patched xstartup, no fallback)
+            # XFCE startup
             sudo -u dev bash -lc "cat > ~/.vnc/xstartup <<'EOF'
           #!/bin/sh
           unset SESSION_MANAGER
@@ -70,18 +70,8 @@ jobs:
             systemctl start systemd-logind
             systemctl enable --now tailscaled
 
-            # Start VNC server manually
-            sudo -u dev vncserver :1 -localhost no -geometry 1280x800 -SecurityTypes VncAuth
-          '
-
-      - name: Install Firefox
-        run: |
-          set -euxo pipefail
-          docker exec sysd bash -lc '
-            cd /opt
-            wget -O firefox.tar.xz https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US
-            tar -xf firefox.tar.xz
-            ln -sf /opt/firefox/firefox /usr/bin/firefox
+            # Start VNC server (localhost only, for noVNC)
+            sudo -u dev vncserver :1 -localhost yes -geometry 1280x800 -SecurityTypes VncAuth
           '
 
       - name: Tailscale up (IPv4 only)
@@ -102,19 +92,16 @@ jobs:
 
           echo "===================================================="
           echo "🌐 noVNC URL: http://$TS_IP:6080/vnc.html"
-          echo "🖥  VNC Client: $TS_IP:5901"
           echo "🔑 Password: $(docker exec sysd cat /home/dev/.vnc/current_vnc_password)"
           echo "===================================================="
-
-          docker exec sysd loginctl || true
 
       - name: Launch noVNC proxy
         run: |
           docker exec -d sysd bash -lc '
-            nohup /usr/share/novnc/utils/launch.sh \
+            /usr/share/novnc/utils/launch.sh \
               --vnc localhost:5901 \
               --listen 0.0.0.0:6080 \
-              --web /usr/share/novnc > /var/log/novnc.log 2>&1 &
+              --web /usr/share/novnc &
           '
 
       - name: Keep session alive (6h)
