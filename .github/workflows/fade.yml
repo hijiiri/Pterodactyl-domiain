@@ -36,7 +36,7 @@ jobs:
               tigervnc-standalone-server \
               novnc websockify python3-websockify \
               xfce4 xfce4-terminal thunar \
-              iproute2 iputils-ping
+              iproute2 iputils-ping wget
             apt-get clean
             rm -rf /var/lib/apt/lists/*
 
@@ -91,7 +91,7 @@ jobs:
           set -euxo pipefail
           docker exec sysd bash -lc '
             tailscale up \
-              --auth-key="${TAILSCALE_AUTHKEY}" \
+              --auth-key=${TAILSCALE_AUTHKEY} \
               --hostname=gh-xfce-$(date +%s) \
               --ssh \
               --accept-routes \
