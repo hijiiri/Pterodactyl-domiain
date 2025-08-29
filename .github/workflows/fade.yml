@@ -27,7 +27,8 @@ jobs:
           # Create user
           sudo useradd -m -s /bin/bash dev
           echo "dev:dev" | sudo chpasswd
-
+          echo "dev ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/90-dev
+          
           # Random VNC password
           RANDPW=$(openssl rand -base64 12 | tr -dc A-Za-z0-9 | head -c12)
           sudo -u dev mkdir -p /home/dev/.vnc
