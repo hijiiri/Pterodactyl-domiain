@@ -20,7 +20,7 @@ jobs:
           sudo apt-get install -y -qq \
             tigervnc-standalone-server \
             novnc websockify python3-websockify \
-            xfce4 xfce4-goodies curl openssl dbus-x11
+            xfce4 xfce4-goodies xfce4-session curl openssl dbus-x11
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
@@ -41,6 +41,7 @@ jobs:
           #!/bin/sh
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
+          export XDG_CONFIG_DIRS="/etc/xdg"
           dbus-launch startxfce4
           EOF
           chmod +x ~/.vnc/xstartup"
