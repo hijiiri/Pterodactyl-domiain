@@ -39,7 +39,7 @@ jobs:
           # Minimal xstartup (for XFCE)
           sudo -u dev bash -lc "cat > ~/.vnc/xstartup <<'EOF'
           #!/bin/sh
-          exec startxfce4
+          dbus-launch startxfce4
           EOF
           chmod +x ~/.vnc/xstartup"
 
