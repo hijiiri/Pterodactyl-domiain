@@ -39,22 +39,23 @@ jobs:
           # Minimal xstartup (for XFCE)
           sudo -u dev bash -lc "cat > ~/.vnc/xstartup <<'EOF'
           #!/bin/sh
-          # Unset all conflicting environment variables
+          # Unset variables
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
-          unset XDG_SESSION_TYPE
-          unset XDG_SESSION_CLASS
-          unset XDG_CURRENT_DESKTOP
           
-          # Explicitly set necessary environment variables
-          export XDG_CONFIG_DIRS="/etc/xdg"
-          export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+          # Set necessary environment variables for XFCE
           export XDG_SESSION_TYPE=x11
           export XDG_SESSION_CLASS=user
           export XDG_CURRENT_DESKTOP=XFCE
           export XDG_CONFIG_DIRS="/etc/xdg"
           
-          dbus-launch startxfce4
+          # Start D-Bus session if it's not already running
+          if ! pgrep -x "dbus-daemon" > /dev/null; then
+              eval $(/usr/bin/dbus-launch --sh-syntax --exit-with-session)
+          fi
+          
+          # Start XFCE session
+          startxfce4 &
           EOF
           chmod +x ~/.vnc/xstartup"
 
