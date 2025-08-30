@@ -42,7 +42,7 @@ jobs:
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
           export XDG_CONFIG_DIRS="/etc/xdg"
-          dbus-launch xfce4-session
+          dbus-launch startxfce4
           EOF
           chmod +x ~/.vnc/xstartup"
 
