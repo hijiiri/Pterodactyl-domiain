@@ -1,4 +1,4 @@
-name: novnc-tailscale-xterm
+name: novnc-tailscale-xfce
 
 on:
   workflow_dispatch:
@@ -14,13 +14,13 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
 
     steps:
-      - name: Install xterm, TigerVNC, noVNC, Tailscale
+      - name: Install xfce, TigerVNC, noVNC, Tailscale
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             tigervnc-standalone-server \
             novnc websockify python3-websockify \
-            xterm curl openssl
+            xfce4 xfce4-goodies curl openssl
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
@@ -36,10 +36,10 @@ jobs:
           echo "$RANDPW" | sudo tee /home/dev/.vnc/current_vnc_password >/dev/null
           sudo chmod 600 /home/dev/.vnc/current_vnc_password
 
-          # Minimal xstartup (just xterm)
+          # Minimal xstartup (for XFCE)
           sudo -u dev bash -lc "cat > ~/.vnc/xstartup <<'EOF'
           #!/bin/sh
-          exec xterm
+          exec startxfce4 &
           EOF
           chmod +x ~/.vnc/xstartup"
 
@@ -54,7 +54,7 @@ jobs:
         run: |
           sudo tailscale up \
             --auth-key=${{ secrets.TAILSCALE_AUTHKEY }} \
-            --hostname=gh-xterm-$(date +%s) \
+            --hostname=gh-xfce-$(date +%s) \
             --ssh \
             --accept-routes \
             --accept-dns=true
